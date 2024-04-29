@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/url"
 
-	"github.com/valyala/fasthttp"
+	"github.com/powerwaf-cdn/fasthttp"
 	"golang.org/x/net/proxy"
 )
 

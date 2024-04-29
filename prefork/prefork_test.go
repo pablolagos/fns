@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/valyala/fasthttp"
+	"github.com/powerwaf-cdn/fasthttp"
 )
 
 func setUp() {
