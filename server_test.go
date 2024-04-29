@@ -4255,7 +4255,10 @@ func TestServerDisableBuffering(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error when copying body: %v", err)
 			}
-			ctx.CloseResponse()
+			err = ctx.CloseResponse()
+			if err != nil {
+				t.Fatalf("Unexpected error when closing response: %v", err)
+			}
 			if len(ctx.Response.Body()) > 0 {
 				t.Fatalf("Body was populated when buffer was disabled")
 			}
@@ -4351,7 +4354,6 @@ func TestDisabledBufferingWithEmptyBody(t *testing.T) {
 	if len(resp.Body()) != 0 {
 		t.Fatalf("Body length must be 0. Got %d", len(resp.Body()))
 	}
-
 }
 
 func verifyResponse(t *testing.T, r *bufio.Reader, expectedStatusCode int, expectedContentType, expectedBody string) *Response {

@@ -369,7 +369,7 @@ func countHexDigits(n int) int {
 
 	count := 0
 	for n > 0 {
-		n = n >> 4
+		n >>= 4
 		count++
 	}
 

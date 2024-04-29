@@ -613,7 +613,6 @@ type RequestCtx struct {
 	getUnbufferedWriter func() UnbufferedWriter // creates unbuffered writer
 	unbufferedWriter    UnbufferedWriter        // writes directly to underlying connection
 	bytesSent           int                     // number of bytes sent to client using unbuffered operations
-
 }
 
 // DisableBuffering modifies fasthttp to disable body buffering for this request.

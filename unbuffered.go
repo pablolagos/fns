@@ -20,8 +20,10 @@ type unbufferedWriter struct {
 	headersWritten    bool
 }
 
-var ErrNotUnbuffered = errors.New("not unbuffered")
-var ErrClosedUnbufferedWriter = errors.New("use of closed unbuffered writer")
+var (
+	ErrNotUnbuffered          = errors.New("not unbuffered")
+	ErrClosedUnbufferedWriter = errors.New("use of closed unbuffered writer")
+)
 
 // Ensure unbufferedWriter implements UnbufferedWriter.
 var _ UnbufferedWriter = &unbufferedWriter{}
