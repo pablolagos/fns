@@ -608,6 +608,66 @@ type RequestCtx struct {
 	hijackHandler    HijackHandler
 	hijackNoResponse bool
 	formValueFunc    FormValueFunc
+
+	disableBuffering    bool                    // disables buffered response body
+	getUnbufferedWriter func() UnbufferedWriter // creates unbuffered writer
+	unbufferedWriter    UnbufferedWriter        // writes directly to underlying connection
+	bytesSent           int                     // number of bytes sent to client using unbuffered operations
+}
+
+// DisableBuffering modifies fasthttp to disable body buffering for this request.
+// This is useful for requests that return large data or stream data.
+//
+// When buffering is disabled you must:
+//  1. Set response status and header values before writing body
+//  2. Set ContentLength is optional. If not set, the server will use chunked encoding.
+//  3. Write body data using methods like ctx.Write or  io.Copy(ctx,src), etc.
+//  4. Optionally call CloseResponse to finalize the response.
+//
+// CLosing the response will finalize the response and send the last chunk.
+// If the handler does not finish the response, it will be called automatically after handler returns.
+// Closing the response will also set BytesSent with the correct number of total bytes sent.
+func (ctx *RequestCtx) DisableBuffering() {
+	ctx.disableBuffering = true
+
+	// If the protocol transport layer has not set the unbuffered writer, we will create a default one.
+	if ctx.getUnbufferedWriter == nil {
+		ctx.unbufferedWriter = newUnbufferedWriter(ctx)
+	} else {
+		ctx.unbufferedWriter = ctx.getUnbufferedWriter()
+	}
+}
+
+// IsBufferingDisabled returns true if buffering is disabled for this request.
+// See DisableBuffering for more details.
+func (ctx *RequestCtx) IsBufferingDisabled() bool {
+	return ctx.disableBuffering
+}
+
+// SetUnbufferedWriter sets a function that returns an unbuffered writer for this request.
+// If a null value is passed, the current writer is discarded.
+//
+// This function is intended to be used by a Protocol Transport Layer to set a specific writer for the protocol
+// to implement other than HTTP/1.x responses. Not intended to be used by application code.
+func (ctx *RequestCtx) SetUnbufferedWriter(f func() UnbufferedWriter) {
+	if f == nil {
+		ctx.unbufferedWriter = nil
+		ctx.getUnbufferedWriter = nil
+		ctx.disableBuffering = false
+		return
+	}
+	ctx.getUnbufferedWriter = f
+}
+
+// CloseResponse finalizes non-buffered response dispatch.
+// This method must be called after performing non-buffered responses
+// If the handler does not finish the response, it will be called automatically
+// after the handler function returns.
+func (ctx *RequestCtx) CloseResponse() error {
+	if !ctx.disableBuffering || ctx.unbufferedWriter == nil {
+		return ErrNotUnbuffered
+	}
+	return ctx.unbufferedWriter.Close()
 }
 
 // HijackHandler must process the hijacked connection c.
@@ -822,6 +882,11 @@ func (ctx *RequestCtx) reset() {
 
 	ctx.hijackHandler = nil
 	ctx.hijackNoResponse = false
+
+	ctx.disableBuffering = false
+	ctx.unbufferedWriter = nil
+	ctx.getUnbufferedWriter = nil
+	ctx.bytesSent = 0
 }
 
 type firstByteReader struct {
@@ -1443,8 +1508,26 @@ func (ctx *RequestCtx) NotFound() {
 
 // Write writes p into response body.
 func (ctx *RequestCtx) Write(p []byte) (int, error) {
+	if ctx.disableBuffering {
+		return ctx.writeDirect(p)
+	}
+
 	ctx.Response.AppendBody(p)
 	return len(p), nil
+}
+
+// writeDirect writes p to underlying connection bypassing any buffering.
+func (ctx *RequestCtx) writeDirect(p []byte) (int, error) {
+	if ctx.unbufferedWriter == nil {
+		ctx.unbufferedWriter = newUnbufferedWriter(ctx)
+	}
+	return ctx.unbufferedWriter.Write(p)
+}
+
+// BytesSent returns the number of bytes sent to the client after non buffered operation.
+// Includes headers and body length.
+func (ctx *RequestCtx) BytesSent() int {
+	return ctx.bytesSent
 }
 
 // WriteString appends s to response body.
@@ -2357,6 +2440,11 @@ func (s *Server) serveConn(c net.Conn) (err error) {
 		// If a client denies a request the handler should not be called
 		if continueReadingRequest {
 			s.Handler(ctx)
+		}
+
+		if ctx.disableBuffering {
+			_ = ctx.CloseResponse()
+			break
 		}
 
 		timeoutResponse = ctx.timeoutResponse
