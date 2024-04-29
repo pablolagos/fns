@@ -4307,6 +4307,53 @@ func TestServerDisableBuffering(t *testing.T) {
 	<-done
 }
 
+func TestDisabledBufferingWithEmptyBody(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.DisableBuffering()
+			ctx.SetStatusCode(StatusOK)
+			err := ctx.CloseResponse()
+			if err != nil {
+				t.Fatalf("Unexpected error when closing response: %v", err)
+			}
+		},
+	}
+
+	ln := fasthttputil.NewInmemoryListener()
+
+	go func() {
+		if err := s.Serve(ln); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	}()
+
+	conn, err := ln.Dial()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err = conn.Write([]byte("GET /index.html HTTP/1.1\r\nHost: google.com\r\n\r\n")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	br := bufio.NewReader(conn)
+
+	var resp Response
+	if err := resp.Read(br); err != nil {
+		t.Fatalf("Unexpected error when reading response: %v", err)
+	}
+	if resp.Header.StatusCode() != StatusOK {
+		t.Fatalf("Unexpected status code %d. Expected %d", resp.Header.StatusCode(), StatusOK)
+	}
+	if resp.Header.ContentLength() != 0 {
+		t.Fatalf("Unexpected Content-Length %d. Expected %d", resp.Header.ContentLength(), 0)
+	}
+	if len(resp.Body()) != 0 {
+		t.Fatalf("Body length must be 0. Got %d", len(resp.Body()))
+	}
+
+}
+
 func verifyResponse(t *testing.T, r *bufio.Reader, expectedStatusCode int, expectedContentType, expectedBody string) *Response {
 	var resp Response
 	if err := resp.Read(r); err != nil {

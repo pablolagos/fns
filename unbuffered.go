@@ -12,34 +12,35 @@ type UnbufferedWriter interface {
 	Close() error
 }
 
-type UnbufferedWriterHttp1 struct {
+type unbufferedWriter struct {
 	writer            *bufio.Writer
 	ctx               *RequestCtx
 	bodyChunkStarted  bool
 	bodyLastChunkSent bool
+	headersWritten    bool
 }
 
 var ErrNotUnbuffered = errors.New("not unbuffered")
-var ErrClosedUnbufferedWriter = errors.New("closed unbuffered writer")
+var ErrClosedUnbufferedWriter = errors.New("use of closed unbuffered writer")
 
-// Ensure UnbufferedWriterHttp1 implements UnbufferedWriter.
-var _ UnbufferedWriter = &UnbufferedWriterHttp1{}
+// Ensure unbufferedWriter implements UnbufferedWriter.
+var _ UnbufferedWriter = &unbufferedWriter{}
 
-// NewUnbufferedWriter
+// newUnbufferedWriter
 //
 // Object must be discarded when request is finished
-func NewUnbufferedWriter(ctx *RequestCtx) *UnbufferedWriterHttp1 {
+func newUnbufferedWriter(ctx *RequestCtx) *unbufferedWriter {
 	writer := acquireWriter(ctx)
-	return &UnbufferedWriterHttp1{ctx: ctx, writer: writer}
+	return &unbufferedWriter{ctx: ctx, writer: writer}
 }
 
-func (uw *UnbufferedWriterHttp1) Write(p []byte) (int, error) {
+func (uw *unbufferedWriter) Write(p []byte) (int, error) {
 	if uw.writer == nil || uw.ctx == nil {
 		return 0, ErrClosedUnbufferedWriter
 	}
 
 	// Write headers if not already sent
-	if !uw.ctx.Response.headersWritten {
+	if !uw.headersWritten {
 		_, err := uw.WriteHeaders()
 		if err != nil {
 			return 0, fmt.Errorf("error writing headers: %w", err)
@@ -63,12 +64,12 @@ func (uw *UnbufferedWriterHttp1) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (uw *UnbufferedWriterHttp1) WriteHeaders() (int, error) {
+func (uw *unbufferedWriter) WriteHeaders() (int, error) {
 	if uw.writer == nil || uw.ctx == nil {
 		return 0, ErrClosedUnbufferedWriter
 	}
 
-	if !uw.ctx.Response.headersWritten {
+	if !uw.headersWritten {
 		if uw.ctx.Response.Header.contentLength == 0 && uw.ctx.Response.Header.IsHTTP11() {
 			if uw.ctx.Response.SkipBody {
 				uw.ctx.Response.Header.SetContentLength(0)
@@ -76,24 +77,24 @@ func (uw *UnbufferedWriterHttp1) WriteHeaders() (int, error) {
 				uw.ctx.Response.Header.SetContentLength(-1) // means Transfer-Encoding = chunked
 			}
 		}
-		h := uw.ctx.Response.Header.Header()
-		n, err := uw.writer.Write(h)
+
+		n, err := uw.ctx.Response.Header.WriteTo(uw.writer)
 		if err != nil {
 			return 0, err
 		}
-		uw.ctx.bytesSent += n
-		uw.ctx.Response.headersWritten = true
+		uw.ctx.bytesSent += int(n)
+		uw.headersWritten = true
 	}
 	return 0, nil
 }
 
-func (uw *UnbufferedWriterHttp1) Close() error {
+func (uw *unbufferedWriter) Close() error {
 	if uw.writer == nil || uw.ctx == nil {
 		return ErrClosedUnbufferedWriter
 	}
 
 	// write headers if not already sent (e.g. if there is no body written)
-	if !uw.ctx.Response.headersWritten {
+	if !uw.headersWritten {
 		// skip body, as we are closing without writing body
 		uw.ctx.Response.SkipBody = true
 		_, err := uw.WriteHeaders()

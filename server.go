@@ -609,10 +609,11 @@ type RequestCtx struct {
 	hijackNoResponse bool
 	formValueFunc    FormValueFunc
 
-	disableBuffering    bool                               // disables buffered response body
-	getUnbufferedWriter func(*RequestCtx) UnbufferedWriter // defines how to get unbuffered writer
-	unbufferedWriter    UnbufferedWriter                   // writes directly to underlying connection
-	bytesSent           int                                // number of bytes sent to client using unbuffered operations
+	disableBuffering    bool                    // disables buffered response body
+	getUnbufferedWriter func() UnbufferedWriter // creates unbuffered writer
+	unbufferedWriter    UnbufferedWriter        // writes directly to underlying connection
+	bytesSent           int                     // number of bytes sent to client using unbuffered operations
+
 }
 
 // DisableBuffering modifies fasthttp to disable body buffering for this request.
@@ -630,15 +631,33 @@ type RequestCtx struct {
 func (ctx *RequestCtx) DisableBuffering() {
 	ctx.disableBuffering = true
 
-	// We need to create a new unbufferedWriter for each unbuffered request.
-	// This way we can allow different implementations and be compatible with http2 protocol
-	if ctx.unbufferedWriter == nil {
-		if ctx.getUnbufferedWriter != nil {
-			ctx.unbufferedWriter = ctx.getUnbufferedWriter(ctx)
-		} else {
-			ctx.unbufferedWriter = NewUnbufferedWriter(ctx)
-		}
+	// If the protocol transport layer has not set the unbuffered writer, we will create a default one.
+	if ctx.getUnbufferedWriter == nil {
+		ctx.unbufferedWriter = newUnbufferedWriter(ctx)
+	} else {
+		ctx.unbufferedWriter = ctx.getUnbufferedWriter()
 	}
+}
+
+// IsBufferingDisabled returns true if buffering is disabled for this request.
+// See DisableBuffering for more details.
+func (ctx *RequestCtx) IsBufferingDisabled() bool {
+	return ctx.disableBuffering
+}
+
+// SetUnbufferedWriter sets a function that returns an unbuffered writer for this request.
+// If a null value is passed, the current writer is discarded.
+//
+// This function is intended to be used by a Protocol Transport Layer to set a specific writer for the protocol
+// to implement other than HTTP/1.x responses. Not intended to be used by application code.
+func (ctx *RequestCtx) SetUnbufferedWriter(f func() UnbufferedWriter) {
+	if f == nil {
+		ctx.unbufferedWriter = nil
+		ctx.getUnbufferedWriter = nil
+		ctx.disableBuffering = false
+		return
+	}
+	ctx.getUnbufferedWriter = f
 }
 
 // CloseResponse finalizes non-buffered response dispatch.
@@ -1501,7 +1520,7 @@ func (ctx *RequestCtx) Write(p []byte) (int, error) {
 // writeDirect writes p to underlying connection bypassing any buffering.
 func (ctx *RequestCtx) writeDirect(p []byte) (int, error) {
 	if ctx.unbufferedWriter == nil {
-		ctx.unbufferedWriter = NewUnbufferedWriter(ctx)
+		ctx.unbufferedWriter = newUnbufferedWriter(ctx)
 	}
 	return ctx.unbufferedWriter.Write(p)
 }
