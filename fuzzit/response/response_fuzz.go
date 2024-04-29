@@ -7,7 +7,7 @@ import (
 	"bufio"
 	"bytes"
 
-	"github.com/valyala/fasthttp"
+	"github.com/powerwaf-cdn/fasthttp"
 )
 
 func Fuzz(data []byte) int {
