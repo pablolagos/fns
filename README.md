@@ -31,7 +31,7 @@ Ensure you have Go installed on your machine. [Download Go](https://golang.org/d
 ### Installing FNS
 
 ```bash
-go get -u github.com/tuusuario/FNS
+go get -u github.com/pablolagos/FNS
 ```
 
 ## 🛠 Usage
