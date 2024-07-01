@@ -1,3 +1,11 @@
+# 🚧 Under Development 🚧
+
+**This software is currently in development and is not yet production-ready.**
+
+Please be aware that features may change, and the application may contain bugs or incomplete functionality. Use at your own risk, and feel free to contribute or provide feedback!
+
+---
+
 # FNS (FastNetServer)
 
 Welcome to FNS, a high-performance HTTP server designed to meet the demands of modern web applications. Built on the robust foundations of fasthttp, FNS offers enhanced compatibility with HTTP/2.0 and provides unbuffered responses for superior performance.
