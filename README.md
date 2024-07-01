@@ -33,7 +33,7 @@ Setting up a basic FNS server is straightforward. Here's a quick example:
 package main
 
 import (
-    "github.com/tuusuario/FNS"
+    "github.com/pablolagos/fns"
     "log"
 )
 
@@ -62,6 +62,6 @@ We welcome contributions from the community! Please read our Contributing Guidel
 FNS is licensed under the MIT License. See the LICENSE file for more details.
 
 ### 🌟 Acknowledgements
-FNS is based on the incredible work done by fasthttp created by Valyala.
+FNS is based on the incredible work done by FastHTTP created by Aliaksandr Valialkin, VertaMedia, Kirill Danshin, Erik Dubbelboer and all FastHTTP Authors.
 
 Made with ❤️ by Pablo Lagos
