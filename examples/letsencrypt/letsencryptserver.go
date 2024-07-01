@@ -9,7 +9,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-func requestHandler(ctx *fasthttp.RequestCtx) {
+func requestHandler(ctx *fns.RequestCtx) {
 	ctx.SetBodyString("hello from https!")
 }
 
@@ -35,7 +35,7 @@ func main() {
 
 	lnTls := tls.NewListener(ln, cfg)
 
-	if err := fasthttp.Serve(lnTls, requestHandler); err != nil {
+	if err := fns.Serve(lnTls, requestHandler); err != nil {
 		panic(err)
 	}
 }

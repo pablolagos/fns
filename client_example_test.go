@@ -1,4 +1,4 @@
-package fasthttp_test
+package fns_test
 
 import (
 	"log"
@@ -9,7 +9,7 @@ import (
 func ExampleHostClient() {
 	// Prepare a client, which fetches webpages via HTTP proxy listening
 	// on the localhost:8080.
-	c := &fasthttp.HostClient{
+	c := &fns.HostClient{
 		Addr: "localhost:8080",
 	}
 
@@ -18,8 +18,8 @@ func ExampleHostClient() {
 	if err != nil {
 		log.Fatalf("Error when loading google page through local proxy: %v", err)
 	}
-	if statusCode != fasthttp.StatusOK {
-		log.Fatalf("Unexpected status code: %d. Expecting %d", statusCode, fasthttp.StatusOK)
+	if statusCode != fns.StatusOK {
+		log.Fatalf("Unexpected status code: %d. Expecting %d", statusCode, fns.StatusOK)
 	}
 	useResponseBody(body)
 
@@ -28,8 +28,8 @@ func ExampleHostClient() {
 	if err != nil {
 		log.Fatalf("Error when loading foobar page through local proxy: %v", err)
 	}
-	if statusCode != fasthttp.StatusOK {
-		log.Fatalf("Unexpected status code: %d. Expecting %d", statusCode, fasthttp.StatusOK)
+	if statusCode != fns.StatusOK {
+		log.Fatalf("Unexpected status code: %d. Expecting %d", statusCode, fns.StatusOK)
 	}
 	useResponseBody(body)
 }

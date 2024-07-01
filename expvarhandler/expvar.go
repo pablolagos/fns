@@ -22,7 +22,7 @@ var (
 // Expvars may be filtered by regexp provided via 'r' query argument.
 //
 // See https://pkg.go.dev/expvar for details.
-func ExpvarHandler(ctx *fasthttp.RequestCtx) {
+func ExpvarHandler(ctx *fns.RequestCtx) {
 	expvarHandlerCalls.Add(1)
 
 	ctx.Response.Reset()
@@ -31,7 +31,7 @@ func ExpvarHandler(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		expvarRegexpErrors.Add(1)
 		fmt.Fprintf(ctx, "Error when obtaining expvar regexp: %v", err)
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetStatusCode(fns.StatusBadRequest)
 		return
 	}
 
@@ -51,7 +51,7 @@ func ExpvarHandler(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json; charset=utf-8")
 }
 
-func getExpvarRegexp(ctx *fasthttp.RequestCtx) (*regexp.Regexp, error) {
+func getExpvarRegexp(ctx *fns.RequestCtx) (*regexp.Regexp, error) {
 	r := string(ctx.QueryArgs().Peek("r"))
 	if len(r) == 0 {
 		return defaultRE, nil

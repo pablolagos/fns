@@ -9,27 +9,27 @@ import (
 
 func main() {
 	// Get URI from a pool
-	url := fasthttp.AcquireURI()
+	url := fns.AcquireURI()
 	url.Parse(nil, []byte("http://localhost:8080/"))
 	url.SetUsername("Aladdin")
 	url.SetPassword("Open Sesame")
 
-	hc := &fasthttp.HostClient{
+	hc := &fns.HostClient{
 		Addr: "localhost:8080", // The host address and port must be set explicitly
 	}
 
-	req := fasthttp.AcquireRequest()
-	req.SetURI(url)          // copy url into request
-	fasthttp.ReleaseURI(url) // now you may release the URI
+	req := fns.AcquireRequest()
+	req.SetURI(url)     // copy url into request
+	fns.ReleaseURI(url) // now you may release the URI
 
-	req.Header.SetMethod(fasthttp.MethodGet)
-	resp := fasthttp.AcquireResponse()
+	req.Header.SetMethod(fns.MethodGet)
+	resp := fns.AcquireResponse()
 	err := hc.Do(req, resp)
-	fasthttp.ReleaseRequest(req)
+	fns.ReleaseRequest(req)
 	if err == nil {
 		fmt.Printf("Response: %s\n", resp.Body())
 	} else {
 		fmt.Fprintf(os.Stderr, "Connection error: %v\n", err)
 	}
-	fasthttp.ReleaseResponse(resp)
+	fns.ReleaseResponse(resp)
 }

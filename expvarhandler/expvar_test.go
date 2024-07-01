@@ -16,7 +16,7 @@ func TestExpvarHandlerBasic(t *testing.T) {
 		return "foobar"
 	}))
 
-	var ctx fasthttp.RequestCtx
+	var ctx fns.RequestCtx
 
 	expvarHandlerCalls.Set(0)
 
@@ -56,7 +56,7 @@ func TestExpvarHandlerBasic(t *testing.T) {
 }
 
 func TestExpvarHandlerRegexp(t *testing.T) {
-	var ctx fasthttp.RequestCtx
+	var ctx fns.RequestCtx
 	ctx.QueryArgs().Set("r", "cmd")
 	ExpvarHandler(&ctx)
 	body := string(ctx.Response.Body())

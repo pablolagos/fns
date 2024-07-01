@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package fasthttp
+package fns
 
 import (
 	"errors"

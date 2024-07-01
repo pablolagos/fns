@@ -1,4 +1,4 @@
-package fasthttp
+package fns
 
 // HTTP methods were copied from net/http.
 const (

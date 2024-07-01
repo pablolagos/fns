@@ -1,4 +1,4 @@
-package fasthttp_test
+package fns_test
 
 import (
 	"log"
@@ -7,7 +7,7 @@ import (
 )
 
 func ExampleFS() {
-	fs := &fasthttp.FS{
+	fs := &fns.FS{
 		// Path to directory to serve.
 		Root: "/var/www/static-site",
 
@@ -22,7 +22,7 @@ func ExampleFS() {
 	h := fs.NewRequestHandler()
 
 	// Start the server.
-	if err := fasthttp.ListenAndServe(":8080", h); err != nil {
+	if err := fns.ListenAndServe(":8080", h); err != nil {
 		log.Fatalf("error in ListenAndServe: %v", err)
 	}
 }

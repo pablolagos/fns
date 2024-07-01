@@ -20,7 +20,7 @@ var (
 // PprofHandler serves server runtime profiling data in the format expected by the pprof visualization tool.
 //
 // See https://pkg.go.dev/net/http/pprof for details.
-func PprofHandler(ctx *fasthttp.RequestCtx) {
+func PprofHandler(ctx *fns.RequestCtx) {
 	ctx.Response.Header.Set("Content-Type", "text/html")
 	switch {
 	case bytes.HasPrefix(ctx.Path(), []byte("/debug/pprof/cmdline")):

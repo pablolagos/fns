@@ -1,7 +1,7 @@
 //go:build !race
 // +build !race
 
-package fasthttp
+package fns
 
 import (
 	"net"

@@ -25,7 +25,7 @@ import (
 // So it is advisable using this function only for quick net/http -> fasthttp
 // switching. Then manually convert net/http handlers to fasthttp handlers
 // according to https://github.com/powerwaf-cdn/fasthttp#switching-from-nethttp-to-fasthttp .
-func NewFastHTTPHandlerFunc(h http.HandlerFunc) fasthttp.RequestHandler {
+func NewFastHTTPHandlerFunc(h http.HandlerFunc) fns.RequestHandler {
 	return NewFastHTTPHandler(h)
 }
 
@@ -45,12 +45,12 @@ func NewFastHTTPHandlerFunc(h http.HandlerFunc) fasthttp.RequestHandler {
 // So it is advisable using this function only for quick net/http -> fasthttp
 // switching. Then manually convert net/http handlers to fasthttp handlers
 // according to https://github.com/powerwaf-cdn/fasthttp#switching-from-nethttp-to-fasthttp .
-func NewFastHTTPHandler(h http.Handler) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
+func NewFastHTTPHandler(h http.Handler) fns.RequestHandler {
+	return func(ctx *fns.RequestCtx) {
 		var r http.Request
 		if err := ConvertRequest(ctx, &r, true); err != nil {
 			ctx.Logger().Printf("cannot parse requestURI %q: %v", r.RequestURI, err)
-			ctx.Error("Internal Server Error", fasthttp.StatusInternalServerError)
+			ctx.Error("Internal Server Error", fns.StatusInternalServerError)
 			return
 		}
 
@@ -60,7 +60,7 @@ func NewFastHTTPHandler(h http.Handler) fasthttp.RequestHandler {
 		ctx.SetStatusCode(w.StatusCode())
 		haveContentType := false
 		for k, vv := range w.Header() {
-			if k == fasthttp.HeaderContentType {
+			if k == fns.HeaderContentType {
 				haveContentType = true
 			}
 
@@ -77,7 +77,7 @@ func NewFastHTTPHandler(h http.Handler) fasthttp.RequestHandler {
 			if len(b) < 512 {
 				l = len(b)
 			}
-			ctx.Response.Header.Set(fasthttp.HeaderContentType, http.DetectContentType(b[:l]))
+			ctx.Response.Header.Set(fns.HeaderContentType, http.DetectContentType(b[:l]))
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package fasthttp_test
+package fns_test
 
 import (
 	"fmt"
@@ -16,25 +16,25 @@ func ExampleLBClient() {
 	}
 
 	// Prepare clients for each server
-	var lbc fasthttp.LBClient
+	var lbc fns.LBClient
 	for _, addr := range servers {
-		c := &fasthttp.HostClient{
+		c := &fns.HostClient{
 			Addr: addr,
 		}
 		lbc.Clients = append(lbc.Clients, c)
 	}
 
 	// Send requests to load-balanced servers
-	var req fasthttp.Request
-	var resp fasthttp.Response
+	var req fns.Request
+	var resp fns.Response
 	for i := 0; i < 10; i++ {
 		url := fmt.Sprintf("http://abcedfg/foo/bar/%d", i)
 		req.SetRequestURI(url)
 		if err := lbc.Do(&req, &resp); err != nil {
 			log.Fatalf("Error when sending request: %v", err)
 		}
-		if resp.StatusCode() != fasthttp.StatusOK {
-			log.Fatalf("unexpected status code: %d. Expecting %d", resp.StatusCode(), fasthttp.StatusOK)
+		if resp.StatusCode() != fns.StatusOK {
+			log.Fatalf("unexpected status code: %d. Expecting %d", resp.StatusCode(), fns.StatusOK)
 		}
 
 		useResponseBody(resp.Body())

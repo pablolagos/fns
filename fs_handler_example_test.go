@@ -1,4 +1,4 @@
-package fasthttp_test
+package fns_test
 
 import (
 	"bytes"
@@ -13,22 +13,22 @@ var (
 	// i.e. /img/foo/bar.jpg will be served from
 	// /var/www/images/foo/bar.jpb .
 	imgPrefix  = []byte("/img/")
-	imgHandler = fasthttp.FSHandler("/var/www/images", 1)
+	imgHandler = fns.FSHandler("/var/www/images", 1)
 
 	// Handler for serving css from /static/css/ path,
 	// i.e. /static/css/foo/bar.css will be served from
 	// /home/dev/css/foo/bar.css .
 	cssPrefix  = []byte("/static/css/")
-	cssHandler = fasthttp.FSHandler("/home/dev/css", 2)
+	cssHandler = fns.FSHandler("/home/dev/css", 2)
 
 	// Handler for serving the rest of requests,
 	// i.e. /foo/bar/baz.html will be served from
 	// /var/www/files/foo/bar/baz.html .
-	filesHandler = fasthttp.FSHandler("/var/www/files", 0)
+	filesHandler = fns.FSHandler("/var/www/files", 0)
 )
 
 // Main request handler
-func requestHandler(ctx *fasthttp.RequestCtx) {
+func requestHandler(ctx *fns.RequestCtx) {
 	path := ctx.Path()
 	switch {
 	case bytes.HasPrefix(path, imgPrefix):
@@ -41,7 +41,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func ExampleFSHandler() {
-	if err := fasthttp.ListenAndServe(":80", requestHandler); err != nil {
+	if err := fns.ListenAndServe(":80", requestHandler); err != nil {
 		log.Fatalf("Error in server: %v", err)
 	}
 }

@@ -27,7 +27,7 @@ const (
 //	c := &fasthttp.Client{
 //		Dial: fasthttpproxy.FasthttpProxyHTTPDialer(),
 //	}
-func FasthttpProxyHTTPDialer() fasthttp.DialFunc {
+func FasthttpProxyHTTPDialer() fns.DialFunc {
 	return FasthttpProxyHTTPDialerTimeout(0)
 }
 
@@ -39,7 +39,7 @@ func FasthttpProxyHTTPDialer() fasthttp.DialFunc {
 //	c := &fasthttp.Client{
 //		Dial: fasthttpproxy.FasthttpProxyHTTPDialerTimeout(time.Second * 2),
 //	}
-func FasthttpProxyHTTPDialerTimeout(timeout time.Duration) fasthttp.DialFunc {
+func FasthttpProxyHTTPDialerTimeout(timeout time.Duration) fns.DialFunc {
 	proxier := httpproxy.FromEnvironment().ProxyFunc()
 
 	// encoded auth barrier for http and https proxy.
@@ -63,16 +63,16 @@ func FasthttpProxyHTTPDialerTimeout(timeout time.Duration) fasthttp.DialFunc {
 
 		if proxyURL == nil {
 			if timeout == 0 {
-				return fasthttp.Dial(addr)
+				return fns.Dial(addr)
 			}
-			return fasthttp.DialTimeout(addr, timeout)
+			return fns.DialTimeout(addr, timeout)
 		}
 
 		var conn net.Conn
 		if timeout == 0 {
-			conn, err = fasthttp.Dial(proxyURL.Host)
+			conn, err = fns.Dial(proxyURL.Host)
 		} else {
-			conn, err = fasthttp.DialTimeout(proxyURL.Host, timeout)
+			conn, err = fns.DialTimeout(proxyURL.Host, timeout)
 		}
 		if err != nil {
 			return nil, err
@@ -101,8 +101,8 @@ func FasthttpProxyHTTPDialerTimeout(timeout time.Duration) fasthttp.DialFunc {
 			return nil, err
 		}
 
-		res := fasthttp.AcquireResponse()
-		defer fasthttp.ReleaseResponse(res)
+		res := fns.AcquireResponse()
+		defer fns.ReleaseResponse(res)
 
 		res.SkipBody = true
 

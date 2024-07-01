@@ -87,7 +87,7 @@ func IsChild() bool {
 }
 
 // New wraps the fasthttp server to run with preforked processes
-func New(s *fasthttp.Server) *Prefork {
+func New(s *fns.Server) *Prefork {
 	return &Prefork{
 		Network:           defaultNetwork,
 		RecoverThreshold:  runtime.GOMAXPROCS(0) / 2,

@@ -1,4 +1,4 @@
-package fasthttp
+package fns
 
 var (
 	defaultServerName  = "fasthttp"

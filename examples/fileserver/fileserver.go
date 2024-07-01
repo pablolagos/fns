@@ -30,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	// Setup FS handler
-	fs := &fasthttp.FS{
+	fs := &fns.FS{
 		Root:               *dir,
 		IndexNames:         []string{"index.html"},
 		GenerateIndexPages: *generateIndexPages,
@@ -38,7 +38,7 @@ func main() {
 		AcceptByteRange:    *byteRange,
 	}
 	if *vhost {
-		fs.PathRewrite = fasthttp.NewVHostPathRewriter(0)
+		fs.PathRewrite = fns.NewVHostPathRewriter(0)
 	}
 	fsHandler := fs.NewRequestHandler()
 
@@ -48,7 +48,7 @@ func main() {
 	//
 	//   * /stats?r=fs will show only stats (expvars) containing 'fs'
 	//     in their names.
-	requestHandler := func(ctx *fasthttp.RequestCtx) {
+	requestHandler := func(ctx *fns.RequestCtx) {
 		switch string(ctx.Path()) {
 		case "/stats":
 			expvarhandler.ExpvarHandler(ctx)
@@ -62,7 +62,7 @@ func main() {
 	if len(*addr) > 0 {
 		log.Printf("Starting HTTP server on %q", *addr)
 		go func() {
-			if err := fasthttp.ListenAndServe(*addr, requestHandler); err != nil {
+			if err := fns.ListenAndServe(*addr, requestHandler); err != nil {
 				log.Fatalf("error in ListenAndServe: %v", err)
 			}
 		}()
@@ -72,7 +72,7 @@ func main() {
 	if len(*addrTLS) > 0 {
 		log.Printf("Starting HTTPS server on %q", *addrTLS)
 		go func() {
-			if err := fasthttp.ListenAndServeTLS(*addrTLS, *certFile, *keyFile, requestHandler); err != nil {
+			if err := fns.ListenAndServeTLS(*addrTLS, *certFile, *keyFile, requestHandler); err != nil {
 				log.Fatalf("error in ListenAndServeTLS: %v", err)
 			}
 		}()
@@ -85,19 +85,19 @@ func main() {
 	select {}
 }
 
-func updateFSCounters(ctx *fasthttp.RequestCtx) {
+func updateFSCounters(ctx *fns.RequestCtx) {
 	// Increment the number of fsHandler calls.
 	fsCalls.Add(1)
 
 	// Update other stats counters
 	resp := &ctx.Response
 	switch resp.StatusCode() {
-	case fasthttp.StatusOK:
+	case fns.StatusOK:
 		fsOKResponses.Add(1)
 		fsResponseBodyBytes.Add(int64(resp.Header.ContentLength()))
-	case fasthttp.StatusNotModified:
+	case fns.StatusNotModified:
 		fsNotModifiedResponses.Add(1)
-	case fasthttp.StatusNotFound:
+	case fns.StatusNotFound:
 		fsNotFoundResponses.Add(1)
 	default:
 		fsOtherResponses.Add(1)

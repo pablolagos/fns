@@ -15,7 +15,7 @@ import (
 
 var headerContentTypeJson = []byte("application/json")
 
-var client *fasthttp.Client
+var client *fns.Client
 
 type Entity struct {
 	Id   int
@@ -27,7 +27,7 @@ func main() {
 	readTimeout, _ := time.ParseDuration("500ms")
 	writeTimeout, _ := time.ParseDuration("500ms")
 	maxIdleConnDuration, _ := time.ParseDuration("1h")
-	client = &fasthttp.Client{
+	client = &fns.Client{
 		ReadTimeout:                   readTimeout,
 		WriteTimeout:                  writeTimeout,
 		MaxIdleConnDuration:           maxIdleConnDuration,
@@ -35,7 +35,7 @@ func main() {
 		DisableHeaderNamesNormalizing: true, // If you set the case on your headers correctly you can enable this
 		DisablePathNormalizing:        true,
 		// increase DNS cache time to an hour instead of default minute
-		Dial: (&fasthttp.TCPDialer{
+		Dial: (&fns.TCPDialer{
 			Concurrency:      4096,
 			DNSCacheDuration: time.Hour,
 		}).Dial,
@@ -45,18 +45,18 @@ func main() {
 }
 
 func sendGetRequest() {
-	req := fasthttp.AcquireRequest()
+	req := fns.AcquireRequest()
 	req.SetRequestURI("http://localhost:8080/")
-	req.Header.SetMethod(fasthttp.MethodGet)
-	resp := fasthttp.AcquireResponse()
+	req.Header.SetMethod(fns.MethodGet)
+	resp := fns.AcquireResponse()
 	err := client.Do(req, resp)
-	fasthttp.ReleaseRequest(req)
+	fns.ReleaseRequest(req)
 	if err == nil {
 		fmt.Printf("DEBUG Response: %s\n", resp.Body())
 	} else {
 		fmt.Fprintf(os.Stderr, "ERR Connection error: %v\n", err)
 	}
-	fasthttp.ReleaseResponse(resp)
+	fns.ReleaseResponse(resp)
 }
 
 func sendPostRequest() {
@@ -68,16 +68,16 @@ func sendPostRequest() {
 	}
 	reqEntityBytes, _ := json.Marshal(reqEntity)
 
-	req := fasthttp.AcquireRequest()
+	req := fns.AcquireRequest()
 	req.SetRequestURI("http://localhost:8080/")
-	req.Header.SetMethod(fasthttp.MethodPost)
+	req.Header.SetMethod(fns.MethodPost)
 	req.Header.SetContentTypeBytes(headerContentTypeJson)
 	req.SetBodyRaw(reqEntityBytes)
 
-	resp := fasthttp.AcquireResponse()
+	resp := fns.AcquireResponse()
 	err := client.DoTimeout(req, resp, reqTimeout)
-	fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
+	fns.ReleaseRequest(req)
+	defer fns.ReleaseResponse(resp)
 
 	if err != nil {
 		errName, known := httpConnError(err)
@@ -116,11 +116,11 @@ func httpConnError(err error) (string, bool) {
 	)
 
 	switch {
-	case errors.Is(err, fasthttp.ErrTimeout):
+	case errors.Is(err, fns.ErrTimeout):
 		errName = "timeout"
-	case errors.Is(err, fasthttp.ErrNoFreeConns):
+	case errors.Is(err, fns.ErrNoFreeConns):
 		errName = "conn_limit"
-	case errors.Is(err, fasthttp.ErrConnectionClosed):
+	case errors.Is(err, fns.ErrConnectionClosed):
 		errName = "conn_close"
 	case reflect.TypeOf(err).String() == "*net.OpError":
 		errName = "timeout"

@@ -10,8 +10,8 @@ import (
 )
 
 func Fuzz(data []byte) int {
-	c := fasthttp.AcquireCookie()
-	defer fasthttp.ReleaseCookie(c)
+	c := fns.AcquireCookie()
+	defer fns.ReleaseCookie(c)
 
 	if err := c.ParseBytes(data); err != nil {
 		return 0

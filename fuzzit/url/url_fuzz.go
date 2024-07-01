@@ -10,8 +10,8 @@ import (
 )
 
 func Fuzz(data []byte) int {
-	u := fasthttp.AcquireURI()
-	defer fasthttp.ReleaseURI(u)
+	u := fns.AcquireURI()
+	defer fns.ReleaseURI(u)
 
 	u.UpdateBytes(data)
 

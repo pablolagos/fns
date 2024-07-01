@@ -82,7 +82,7 @@ func BenchmarkTLSStreaming(b *testing.B) {
 	benchmark(b, streamingHandler, true)
 }
 
-func benchmark(b *testing.B, h fasthttp.RequestHandler, isTLS bool) {
+func benchmark(b *testing.B, h fns.RequestHandler, isTLS bool) {
 	var serverTLSConfig, clientTLSConfig *tls.Config
 	if isTLS {
 		cert, err := tls.X509KeyPair(certblock, keyblock)
@@ -105,12 +105,12 @@ func benchmark(b *testing.B, h fasthttp.RequestHandler, isTLS bool) {
 		if serverTLSConfig != nil {
 			serverLn = tls.NewListener(serverLn, serverTLSConfig)
 		}
-		if err := fasthttp.Serve(serverLn, h); err != nil {
+		if err := fns.Serve(serverLn, h); err != nil {
 			b.Errorf("unexpected error in server: %v", err)
 		}
 		close(serverStopCh)
 	}()
-	c := &fasthttp.HostClient{
+	c := &fns.HostClient{
 		Dial: func(addr string) (net.Conn, error) {
 			return ln.Dial()
 		},
@@ -125,31 +125,31 @@ func benchmark(b *testing.B, h fasthttp.RequestHandler, isTLS bool) {
 	<-serverStopCh
 }
 
-func streamingHandler(ctx *fasthttp.RequestCtx) {
+func streamingHandler(ctx *fns.RequestCtx) {
 	ctx.WriteString("foobar") //nolint:errcheck
 }
 
-func handshakeHandler(ctx *fasthttp.RequestCtx) {
+func handshakeHandler(ctx *fns.RequestCtx) {
 	streamingHandler(ctx)
 
 	// Explicitly close connection after each response.
 	ctx.SetConnectionClose()
 }
 
-func runRequests(b *testing.B, pb *testing.PB, c *fasthttp.HostClient, isTLS bool) {
-	var req fasthttp.Request
+func runRequests(b *testing.B, pb *testing.PB, c *fns.HostClient, isTLS bool) {
+	var req fns.Request
 	if isTLS {
 		req.SetRequestURI("https://foo.bar/baz")
 	} else {
 		req.SetRequestURI("http://foo.bar/baz")
 	}
-	var resp fasthttp.Response
+	var resp fns.Response
 	for pb.Next() {
 		if err := c.Do(&req, &resp); err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
-		if resp.StatusCode() != fasthttp.StatusOK {
-			b.Fatalf("unexpected status code: %d. Expecting %d", resp.StatusCode(), fasthttp.StatusOK)
+		if resp.StatusCode() != fns.StatusOK {
+			b.Fatalf("unexpected status code: %d. Expecting %d", resp.StatusCode(), fns.StatusOK)
 		}
 	}
 }

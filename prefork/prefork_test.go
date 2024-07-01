@@ -44,7 +44,7 @@ func Test_IsChild(t *testing.T) {
 func Test_New(t *testing.T) {
 	t.Parallel()
 
-	s := &fasthttp.Server{}
+	s := &fns.Server{}
 	p := New(s)
 
 	if p.Network != defaultNetwork {
@@ -135,7 +135,7 @@ func Test_ListenAndServe(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	s := &fasthttp.Server{}
+	s := &fns.Server{}
 	p := New(s)
 	p.Reuseport = true
 	p.ServeFunc = func(ln net.Listener) error {
@@ -167,7 +167,7 @@ func Test_ListenAndServeTLS(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	s := &fasthttp.Server{}
+	s := &fns.Server{}
 	p := New(s)
 	p.Reuseport = true
 	p.ServeTLSFunc = func(ln net.Listener, certFile, keyFile string) error {
@@ -199,7 +199,7 @@ func Test_ListenAndServeTLSEmbed(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	s := &fasthttp.Server{}
+	s := &fns.Server{}
 	p := New(s)
 	p.Reuseport = true
 	p.ServeTLSEmbedFunc = func(ln net.Listener, certData, keyData []byte) error {

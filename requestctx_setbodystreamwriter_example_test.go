@@ -1,4 +1,4 @@
-package fasthttp_test
+package fns_test
 
 import (
 	"bufio"
@@ -11,12 +11,12 @@ import (
 
 func ExampleRequestCtx_SetBodyStreamWriter() {
 	// Start fasthttp server for streaming responses.
-	if err := fasthttp.ListenAndServe(":8080", responseStreamHandler); err != nil {
+	if err := fns.ListenAndServe(":8080", responseStreamHandler); err != nil {
 		log.Fatalf("unexpected error in server: %v", err)
 	}
 }
 
-func responseStreamHandler(ctx *fasthttp.RequestCtx) {
+func responseStreamHandler(ctx *fns.RequestCtx) {
 	// Send the response in chunks and wait for a second between each chunk.
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		for i := 0; i < 10; i++ {

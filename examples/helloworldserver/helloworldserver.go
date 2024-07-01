@@ -18,15 +18,15 @@ func main() {
 
 	h := requestHandler
 	if *compress {
-		h = fasthttp.CompressHandler(h)
+		h = fns.CompressHandler(h)
 	}
 
-	if err := fasthttp.ListenAndServe(*addr, h); err != nil {
+	if err := fns.ListenAndServe(*addr, h); err != nil {
 		log.Fatalf("Error in ListenAndServe: %v", err)
 	}
 }
 
-func requestHandler(ctx *fasthttp.RequestCtx) {
+func requestHandler(ctx *fns.RequestCtx) {
 	fmt.Fprintf(ctx, "Hello, world!\n\n")
 
 	fmt.Fprintf(ctx, "Request method is %q\n", ctx.Method())
@@ -48,7 +48,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("X-My-Header", "my-header-value")
 
 	// Set cookies
-	var c fasthttp.Cookie
+	var c fns.Cookie
 	c.SetKey("cookie-name")
 	c.SetValue("cookie-value")
 	ctx.Response.Header.SetCookie(&c)

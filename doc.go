@@ -52,4 +52,4 @@ Fasthttp provides the following features:
     and server implementations or to write custom client and server
     implementations from scratch.
 */
-package fasthttp
+package fns

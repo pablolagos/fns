@@ -10,9 +10,9 @@ import (
 func BenchmarkConvertRequest(b *testing.B) {
 	var httpReq http.Request
 
-	ctx := &fasthttp.RequestCtx{
-		Request: fasthttp.Request{
-			Header:        fasthttp.RequestHeader{},
+	ctx := &fns.RequestCtx{
+		Request: fns.Request{
+			Header:        fns.RequestHeader{},
 			UseHostHeader: false,
 		},
 	}

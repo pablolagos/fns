@@ -19,7 +19,7 @@ import (
 //	c := &fasthttp.Client{
 //		Dial: fasthttpproxy.FasthttpHTTPDialer("username:password@localhost:9050"),
 //	}
-func FasthttpHTTPDialer(proxy string) fasthttp.DialFunc {
+func FasthttpHTTPDialer(proxy string) fns.DialFunc {
 	return FasthttpHTTPDialerTimeout(proxy, 0)
 }
 
@@ -31,7 +31,7 @@ func FasthttpHTTPDialer(proxy string) fasthttp.DialFunc {
 //	c := &fasthttp.Client{
 //		Dial: fasthttpproxy.FasthttpHTTPDialerTimeout("username:password@localhost:9050", time.Second * 2),
 //	}
-func FasthttpHTTPDialerTimeout(proxy string, timeout time.Duration) fasthttp.DialFunc {
+func FasthttpHTTPDialerTimeout(proxy string, timeout time.Duration) fns.DialFunc {
 	var auth string
 	if strings.Contains(proxy, "@") {
 		index := strings.LastIndex(proxy, "@")
@@ -46,16 +46,16 @@ func FasthttpHTTPDialerTimeout(proxy string, timeout time.Duration) fasthttp.Dia
 		if strings.HasPrefix(proxy, "[") {
 			// ipv6
 			if timeout == 0 {
-				conn, err = fasthttp.DialDualStack(proxy)
+				conn, err = fns.DialDualStack(proxy)
 			} else {
-				conn, err = fasthttp.DialDualStackTimeout(proxy, timeout)
+				conn, err = fns.DialDualStackTimeout(proxy, timeout)
 			}
 		} else {
 			// ipv4
 			if timeout == 0 {
-				conn, err = fasthttp.Dial(proxy)
+				conn, err = fns.Dial(proxy)
 			} else {
-				conn, err = fasthttp.DialTimeout(proxy, timeout)
+				conn, err = fns.DialTimeout(proxy, timeout)
 			}
 		}
 
@@ -73,8 +73,8 @@ func FasthttpHTTPDialerTimeout(proxy string, timeout time.Duration) fasthttp.Dia
 			return nil, err
 		}
 
-		res := fasthttp.AcquireResponse()
-		defer fasthttp.ReleaseResponse(res)
+		res := fns.AcquireResponse()
+		defer fns.ReleaseResponse(res)
 
 		res.SkipBody = true
 

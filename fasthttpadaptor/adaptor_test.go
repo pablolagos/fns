@@ -14,7 +14,7 @@ import (
 func TestNewFastHTTPHandler(t *testing.T) {
 	t.Parallel()
 
-	expectedMethod := fasthttp.MethodPost
+	expectedMethod := fns.MethodPost
 	expectedProto := "HTTP/1.1"
 	expectedProtoMajor := 1
 	expectedProtoMinor := 1
@@ -96,8 +96,8 @@ func TestNewFastHTTPHandler(t *testing.T) {
 	fasthttpH := NewFastHTTPHandler(http.HandlerFunc(nethttpH))
 	fasthttpH = setContextValueMiddleware(fasthttpH, expectedContextKey, expectedContextValue)
 
-	var ctx fasthttp.RequestCtx
-	var req fasthttp.Request
+	var ctx fns.RequestCtx
+	var req fns.Request
 
 	req.Header.SetMethod(expectedMethod)
 	req.SetRequestURI(expectedRequestURI)
@@ -120,8 +120,8 @@ func TestNewFastHTTPHandler(t *testing.T) {
 	}
 
 	resp := &ctx.Response
-	if resp.StatusCode() != fasthttp.StatusBadRequest {
-		t.Fatalf("unexpected statusCode: %d. Expecting %d", resp.StatusCode(), fasthttp.StatusBadRequest)
+	if resp.StatusCode() != fns.StatusBadRequest {
+		t.Fatalf("unexpected statusCode: %d. Expecting %d", resp.StatusCode(), fns.StatusBadRequest)
 	}
 	if string(resp.Header.Peek("Header1")) != "value1" {
 		t.Fatalf("unexpected header value: %q. Expecting %q", resp.Header.Peek("Header1"), "value1")
@@ -137,8 +137,8 @@ func TestNewFastHTTPHandler(t *testing.T) {
 	}
 }
 
-func setContextValueMiddleware(next fasthttp.RequestHandler, key string, value interface{}) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
+func setContextValueMiddleware(next fns.RequestHandler, key string, value interface{}) fns.RequestHandler {
+	return func(ctx *fns.RequestCtx) {
 		ctx.SetUserValue(key, value)
 		next(ctx)
 	}

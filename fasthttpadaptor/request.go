@@ -14,7 +14,7 @@ import (
 //
 // The http.Request must not be used after the fasthttp handler has returned!
 // Memory in use by the http.Request will be reused after your handler has returned!
-func ConvertRequest(ctx *fasthttp.RequestCtx, r *http.Request, forServer bool) error {
+func ConvertRequest(ctx *fns.RequestCtx, r *http.Request, forServer bool) error {
 	body := ctx.PostBody()
 	strRequestURI := b2s(ctx.RequestURI())
 

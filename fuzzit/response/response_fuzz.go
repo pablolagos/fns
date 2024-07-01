@@ -11,8 +11,8 @@ import (
 )
 
 func Fuzz(data []byte) int {
-	res := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(res)
+	res := fns.AcquireResponse()
+	defer fns.ReleaseResponse(res)
 
 	if err := res.ReadLimitBody(bufio.NewReader(bytes.NewReader(data)), 1024*1024); err != nil {
 		return 0

@@ -16,7 +16,7 @@ import (
 //	c := &fasthttp.Client{
 //		Dial: fasthttpproxy.FasthttpSocksDialer("socks5://localhost:9050"),
 //	}
-func FasthttpSocksDialer(proxyAddr string) fasthttp.DialFunc {
+func FasthttpSocksDialer(proxyAddr string) fns.DialFunc {
 	var (
 		u      *url.URL
 		err    error
