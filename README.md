@@ -31,7 +31,7 @@ Ensure you have Go installed on your machine. [Download Go](https://golang.org/d
 ### Installing FNS
 
 ```bash
-go get -u github.com/pablolagos/FNS
+go get -u github.com/pablolagos/fns
 ```
 
 ## 🛠 Usage
@@ -72,4 +72,4 @@ FNS is licensed under the MIT License. See the LICENSE file for more details.
 ### 🌟 Acknowledgements
 FNS is based on the incredible work done by FastHTTP created by Aliaksandr Valialkin, VertaMedia, Kirill Danshin, Erik Dubbelboer and all FastHTTP Authors.
 
-Made with ❤️ by Pablo Lagos
+Made with ❤️ for a faster web.
