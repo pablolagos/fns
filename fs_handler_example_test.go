@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"log"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 // Setup file handlers (aka 'file server config')

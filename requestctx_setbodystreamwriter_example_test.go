@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func ExampleRequestCtx_SetBodyStreamWriter() {

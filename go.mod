@@ -1,4 +1,4 @@
-module github.com/powerwaf-cdn/fasthttp
+module github.com/pablolagos/fns
 
 go 1.20
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 var (

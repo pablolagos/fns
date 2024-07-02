@@ -10,8 +10,8 @@ Preforks master process between several child processes increases performance, b
 
 ```go
 import (
-    "github.com/powerwaf-cdn/fasthttp"
-    "github.com/powerwaf-cdn/fasthttp/prefork"
+    "github.com/pablolagos/fns"
+    "github.com/pablolagos/fns/prefork"
 )
 
 server := &fasthttp.Server{

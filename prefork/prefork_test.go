@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func setUp() {

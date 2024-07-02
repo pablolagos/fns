@@ -5,8 +5,7 @@ import (
 	"net/http/pprof"
 	rtp "runtime/pprof"
 
-	"github.com/powerwaf-cdn/fasthttp"
-	"github.com/powerwaf-cdn/fasthttp/fasthttpadaptor"
+	"github.com/pablolagos/fns/fasthttpadaptor"
 )
 
 var (

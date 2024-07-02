@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp/fasthttputil"
+	"github.com/pablolagos/fns/fasthttputil"
 )
 
 func TestWorkerPoolStartStopSerial(t *testing.T) {

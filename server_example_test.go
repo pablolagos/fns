@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func ExampleListenAndServe() {

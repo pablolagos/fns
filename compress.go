@@ -10,7 +10,7 @@ import (
 	"github.com/klauspost/compress/flate"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zlib"
-	"github.com/powerwaf-cdn/fasthttp/stackless"
+	"github.com/pablolagos/fns/stackless"
 	"github.com/valyala/bytebufferpool"
 )
 

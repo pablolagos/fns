@@ -3,7 +3,7 @@ package fns_test
 import (
 	"log"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func ExampleHostClient() {

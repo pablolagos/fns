@@ -6,7 +6,7 @@ package fuzz
 import (
 	"bytes"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func Fuzz(data []byte) int {

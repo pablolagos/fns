@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/powerwaf-cdn/fasthttp/fasthttputil"
+	"github.com/pablolagos/fns/fasthttputil"
 )
 
 // StreamWriter must write data to w.

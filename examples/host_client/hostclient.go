@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func main() {

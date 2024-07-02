@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 var (

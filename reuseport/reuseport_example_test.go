@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/powerwaf-cdn/fasthttp"
-	"github.com/powerwaf-cdn/fasthttp/reuseport"
+	"github.com/pablolagos/fns/reuseport"
 )
 
 func ExampleListen() {

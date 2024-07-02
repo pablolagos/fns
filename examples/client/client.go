@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 var headerContentTypeJson = []byte("application/json")

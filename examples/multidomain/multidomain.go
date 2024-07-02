@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 var domains = make(map[string]fns.RequestHandler)

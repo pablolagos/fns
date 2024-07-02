@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 // NewFastHTTPHandlerFunc wraps net/http handler func to fasthttp

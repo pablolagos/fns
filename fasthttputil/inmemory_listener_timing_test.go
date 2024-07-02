@@ -5,8 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/powerwaf-cdn/fasthttp"
-	"github.com/powerwaf-cdn/fasthttp/fasthttputil"
+	"github.com/pablolagos/fns"
 )
 
 var (

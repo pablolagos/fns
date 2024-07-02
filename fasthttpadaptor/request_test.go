@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 func BenchmarkConvertRequest(b *testing.B) {

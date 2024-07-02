@@ -9,8 +9,7 @@ import (
 	"flag"
 	"log"
 
-	"github.com/powerwaf-cdn/fasthttp"
-	"github.com/powerwaf-cdn/fasthttp/expvarhandler"
+	"github.com/pablolagos/fns"
 )
 
 var (

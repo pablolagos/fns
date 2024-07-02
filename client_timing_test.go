@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp/fasthttputil"
+	"github.com/pablolagos/fns/fasthttputil"
 )
 
 type fakeClientConn struct {

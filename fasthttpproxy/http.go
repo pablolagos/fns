@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/powerwaf-cdn/fasthttp"
+	"github.com/pablolagos/fns"
 )
 
 // FasthttpHTTPDialer returns a fasthttp.DialFunc that dials using
