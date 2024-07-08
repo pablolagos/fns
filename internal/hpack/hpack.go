@@ -112,7 +112,13 @@ func writeString(buf *bytes.Buffer, s string) {
 }
 
 func readString(buf *bytes.Buffer) (string, error) {
+	if buf.Len() < 1 {
+		return "", fmt.Errorf("buffer too short to read length")
+	}
 	length := int(buf.Next(1)[0])
+	if buf.Len() < length {
+		return "", fmt.Errorf("buffer too short to read string of length %d", length)
+	}
 	str := string(buf.Next(length))
 	return str, nil
 }

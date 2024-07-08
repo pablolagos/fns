@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/pablolagos/fns"
 )
@@ -16,18 +17,19 @@ func main() {
 
 	// Create a new server
 	s := &fns.Server{
+		ReadTimeout: 10 * time.Second,
+		Name:        "fns test server",
 		Handler: func(ctx *fns.RequestCtx) {
 			ctx.Success("text/plain", []byte("Hello, world!"))
 		},
 	}
 
 	// Enable HTTP/2
-	fns.EnableHTTP2(s, fns.DefaultH2Config())
+	fns.EnableHTTP2(s, fns.ServerConfig{Debug: true})
 
-	// Listen and serve. It will block the execution.
-	err = fns.ListenAndServeTLSEmbed(":8443", cert, key, s.Handler)
-	if err != nil {
-		log.Fatalf("Error in ListenAndServe: %v", err)
+	// Serve the server
+	log.Println("Serving server on :8443")
+	if err := s.ListenAndServeTLSEmbed(":8443", cert, key); err != nil {
+		log.Fatalf("error serving server: %v", err)
 	}
-
 }

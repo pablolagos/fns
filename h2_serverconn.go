@@ -2,19 +2,36 @@ package fns
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"sync"
 
+	"github.com/pablolagos/fns/internal/debuglog"
 	"github.com/pablolagos/fns/internal/frames"
 	"github.com/pablolagos/fns/internal/hpack"
 )
 
+// Default serverSettings
+var defaultServerSettings = Settings{
+	headerTableSize:      ProtocolDefaultSettings[SettingHeaderTableSize],
+	enablePush:           ProtocolDefaultSettings[SettingEnablePush],
+	maxConcurrentStreams: 100,
+	initialWindowSize:    ProtocolDefaultSettings[SettingInitialWindowSize],
+	maxFrameSize:         ProtocolDefaultSettings[SettingMaxFrameSize],
+	maxHeaderListSize:    100,
+}
+
+const ClientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+var ErrInvalidPreface = errors.New("invalid client preface")
+
 // h2ServerConn represents a single HTTP/2 connection
 type h2ServerConn struct {
 	conn            net.Conn
-	settings        Settings
+	serverSettings  Settings
+	clientSettings  Settings
 	streamManager   *StreamManager
 	flowWindow      int32
 	mu              sync.Mutex
@@ -22,26 +39,35 @@ type h2ServerConn struct {
 	decoder         *hpack.Decoder
 	streamProcessor *StreamProcessor
 	s               *Server
+	debug           *debuglog.Logger
 }
 
 // Serve handles the HTTP/2 connection
 func (sc *h2ServerConn) Serve() error {
+	sc.debug.Infof("Serving connection from %v", sc.conn.RemoteAddr())
 	IncrementConnections()
-	defer DecrementConnections()
+	defer func() {
+		sc.debug.Infof("Closing connection from %v", sc.conn.RemoteAddr())
+		sc.conn.Close()
+		DecrementConnections()
+	}()
 
 	sc.encoder = hpack.NewEncoder()
 	sc.decoder = hpack.NewDecoder()
 	sc.streamProcessor = NewStreamProcessor()
-
-	// Send initial SETTINGS frame
-	if err := sc.sendInitialSettings(); err != nil {
-		sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
-		return err
-	}
+	sc.serverSettings = defaultServerSettings
+	sc.clientSettings = NewSettings()
 
 	// Initialize stream manager
 	sc.streamManager = NewStreamManager()
-	sc.flowWindow = DefaultInitialWindowSize
+	sc.flowWindow = int32(sc.serverSettings.Get(SettingInitialWindowSize))
+
+	// Send initial SETTINGS frame
+	if err := sc.handshake(); err != nil {
+		sc.debug.Errorf("Handshake error: %v", err)
+		sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+		return err
+	}
 
 	// Main loop to handle frames
 	for {
@@ -93,34 +119,49 @@ func (sc *h2ServerConn) handleError(err error, streamID uint32, frameType uint8,
 	}
 }
 
-// sendInitialSettings performs the HTTP/2 initial settings exchange
-func (sc *h2ServerConn) sendInitialSettings() error {
-	// Send initial SETTINGS frame
-	if err := sendSettings(sc.conn, sc.settings); err != nil {
-		return err
+// handshake performs the HTTP/2 connection handshake
+func (sc *h2ServerConn) handshake() error {
+	// Read the client preface
+	sc.debug.Info("Reading client preface")
+	preface := make([]byte, len(ClientPreface))
+	if _, err := sc.conn.Read(preface); err != nil {
+		return fmt.Errorf("error reading client preface: %v", err)
+	}
+	if string(preface) != ClientPreface {
+		return ErrInvalidPreface
+	}
+
+	// Send our initial SETTINGS frame
+	sc.debug.Info("Sending initial SETTINGS frame")
+	if err := sendSettings(sc.conn, sc.serverSettings); err != nil {
+		return fmt.Errorf("error sending initial SETTINGS frame: %v", err)
 	}
 
 	// Receive SETTINGS frame from client
+	sc.debug.Info("Reading initial SETTINGS frame")
 	frame, err := frames.ReadFrame(sc.conn)
 	if err != nil {
 		return err
 	}
-
 	if frame.Type != frames.FrameSettings {
 		return fmt.Errorf("expected SETTINGS frame, got %v", frame.Type)
 	}
 
-	// Apply the received settings
-	applySettings(frame, &sc.settings)
+	// Apply the received serverSettings
+	applySettings(frame, &sc.clientSettings)
 
 	// Send SETTINGS ACK
-	return sendSettingsAck(sc.conn)
+	sc.debug.Info("Sending SETTINGS ACK")
+	if err := sendSettingsAck(sc.conn); err != nil {
+		return fmt.Errorf("error sending SETTINGS ACK: %v", err)
+	}
+	return nil
 }
 
 // handleSettingsFrame handles SETTINGS frames
 func (sc *h2ServerConn) handleSettingsFrame(frame *frames.Frame) {
-	// Apply the received settings
-	applySettings(frame, &sc.settings)
+	// Apply the received serverSettings
+	applySettings(frame, &sc.serverSettings)
 
 	// Send SETTINGS ACK
 	if err := sendSettingsAck(sc.conn); err != nil {
@@ -330,18 +371,16 @@ func (sc *h2ServerConn) closeConnection() {
 func sendSettings(conn net.Conn, settings Settings) error {
 	frame := frames.AcquireFrame(frames.FrameSettings)
 	defer frames.ReleaseFrame(frame)
-	// Fill the frame body with the settings
-	frame.Body = make([]byte, 6*settings.Count())
-	offset := 0
-	for id, value := range settings.Values() {
-		binary.BigEndian.PutUint16(frame.Body[offset:offset+2], id)
-		binary.BigEndian.PutUint32(frame.Body[offset+2:offset+6], value)
-		offset += 6
+
+	err := settings.PutParams(&frame.Body)
+	if err != nil {
+		return fmt.Errorf("error putting serverSettings params: %v", err)
 	}
+
 	return frame.WriteTo(conn)
 }
 
-// applySettings applies the received settings
+// applySettings applies the received serverSettings
 func applySettings(frame *frames.Frame, settings *Settings) {
 	offset := 0
 	for offset < len(frame.Body) {

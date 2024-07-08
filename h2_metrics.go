@@ -19,26 +19,22 @@ var metrics = &Metrics{}
 func IncrementConnections() {
 	atomic.AddInt64(&metrics.totalConnections, 1)
 	atomic.AddInt64(&metrics.activeConnections, 1)
-	log.Printf("New connection established. Active connections: %d", atomic.LoadInt64(&metrics.activeConnections))
 }
 
 // DecrementConnections decrements the active connections count
 func DecrementConnections() {
 	atomic.AddInt64(&metrics.activeConnections, -1)
-	log.Printf("Connection closed. Active connections: %d", atomic.LoadInt64(&metrics.activeConnections))
 }
 
 // IncrementStreams increments the total and active streams count
 func IncrementStreams() {
 	atomic.AddInt64(&metrics.totalStreams, 1)
 	atomic.AddInt64(&metrics.activeStreams, 1)
-	log.Printf("New stream opened. Active streams: %d", atomic.LoadInt64(&metrics.activeStreams))
 }
 
 // DecrementStreams decrements the active streams count
 func DecrementStreams() {
 	atomic.AddInt64(&metrics.activeStreams, -1)
-	log.Printf("Stream closed. Active streams: %d", atomic.LoadInt64(&metrics.activeStreams))
 }
 
 // LogMetrics logs the current metrics periodically

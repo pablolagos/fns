@@ -1,6 +1,11 @@
 package fns
 
-// Identifiers for HTTP/2 settings
+import (
+	"encoding/binary"
+	"errors"
+)
+
+// Identifiers for HTTP/2 serverSettings
 const (
 	SettingHeaderTableSize      uint16 = 0x1
 	SettingEnablePush           uint16 = 0x2
@@ -10,17 +15,28 @@ const (
 	SettingMaxHeaderListSize    uint16 = 0x6
 )
 
-// Default HTTP/2 settings values
+// Default HTTP/2 serverSettings values as per RFC 9113
 const (
 	DefaultHeaderTableSize      = 4096
 	DefaultEnablePush           = 1
-	DefaultMaxConcurrentStreams = 100
+	DefaultMaxConcurrentStreams = 0
 	DefaultInitialWindowSize    = 65535
 	DefaultMaxFrameSize         = 16384
-	DefaultMaxHeaderListSize    = 100
+	DefaultMaxHeaderListSize    = 0
 )
 
-// Settings defines the structure for HTTP/2 settings
+// ProtocolDefaultSettings defines the default values for HTTP/2 serverSettings
+var ProtocolDefaultSettings = [...]uint32{
+	0, // Placeholder for index 0
+	DefaultHeaderTableSize,
+	DefaultEnablePush,
+	DefaultMaxConcurrentStreams,
+	DefaultInitialWindowSize,
+	DefaultMaxFrameSize,
+	DefaultMaxHeaderListSize,
+}
+
+// Settings defines the structure for HTTP/2 serverSettings
 type Settings struct {
 	headerTableSize      uint32
 	enablePush           uint32
@@ -30,27 +46,17 @@ type Settings struct {
 	maxHeaderListSize    uint32
 }
 
-// NewSettings creates a Settings object with default values
-func NewSettings() *Settings {
-	return &Settings{
-		headerTableSize:      DefaultHeaderTableSize,
-		enablePush:           DefaultEnablePush,
-		maxConcurrentStreams: DefaultMaxConcurrentStreams,
-		initialWindowSize:    DefaultInitialWindowSize,
-		maxFrameSize:         DefaultMaxFrameSize,
-		maxHeaderListSize:    DefaultMaxHeaderListSize,
-	}
-}
+var ErrShortBuffer = errors.New("short buffer")
 
-// Values returns the settings as a map
-func (s *Settings) Values() map[uint16]uint32 {
-	return map[uint16]uint32{
-		SettingHeaderTableSize:      s.headerTableSize,
-		SettingEnablePush:           s.enablePush,
-		SettingMaxConcurrentStreams: s.maxConcurrentStreams,
-		SettingInitialWindowSize:    s.initialWindowSize,
-		SettingMaxFrameSize:         s.maxFrameSize,
-		SettingMaxHeaderListSize:    s.maxHeaderListSize,
+// NewSettings creates a Settings object with protocol default values
+func NewSettings() Settings {
+	return Settings{
+		headerTableSize:      ProtocolDefaultSettings[SettingHeaderTableSize],
+		enablePush:           ProtocolDefaultSettings[SettingEnablePush],
+		maxConcurrentStreams: ProtocolDefaultSettings[SettingMaxConcurrentStreams],
+		initialWindowSize:    ProtocolDefaultSettings[SettingInitialWindowSize],
+		maxFrameSize:         ProtocolDefaultSettings[SettingMaxFrameSize],
+		maxHeaderListSize:    ProtocolDefaultSettings[SettingMaxHeaderListSize],
 	}
 }
 
@@ -72,7 +78,7 @@ func (s *Settings) Set(id uint16, value uint32) {
 	}
 }
 
-// Count returns the number of settings
+// Count returns the number of serverSettings
 func (s *Settings) Count() int {
 	return 6
 }
@@ -95,4 +101,44 @@ func (s *Settings) Get(id uint16) uint32 {
 	default:
 		return 0
 	}
+}
+
+// PutParams puts the non-defaul serverSettings into the body of a frame
+func (s *Settings) PutParams(body *[]byte) error {
+	if cap(*body) < 36 {
+		return ErrShortBuffer
+	}
+
+	*body = (*body)[:36] // Adjust slice to required length
+
+	// Define serverSettings parameters
+	settingsParams := []struct {
+		id    uint16
+		value uint32
+	}{
+		{SettingHeaderTableSize, s.headerTableSize},
+		{SettingEnablePush, s.enablePush},
+		{SettingMaxConcurrentStreams, s.maxConcurrentStreams},
+		{SettingInitialWindowSize, s.initialWindowSize},
+		{SettingMaxFrameSize, s.maxFrameSize},
+		{SettingMaxHeaderListSize, s.maxHeaderListSize},
+	}
+
+	// Initialize an index
+	index := 0
+
+	// Put each setting into frame.Body one-by-one
+	for _, param := range settingsParams {
+		if int(param.id) <= len(ProtocolDefaultSettings) && ProtocolDefaultSettings[param.id] != param.value {
+			binary.BigEndian.PutUint16((*body)[index:], param.id)
+			index += 2
+			binary.BigEndian.PutUint32((*body)[index:], param.value)
+			index += 4
+		}
+	}
+
+	// Adjust the length of the body slice
+	*body = (*body)[:index]
+
+	return nil
 }
