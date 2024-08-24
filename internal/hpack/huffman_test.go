@@ -1,7 +1,10 @@
 package hpack
 
 import (
+	"encoding/hex"
 	"testing"
+
+	"golang.org/x/net/http2/hpack"
 )
 
 func TestHuffmanDecode(t *testing.T) {
@@ -11,6 +14,18 @@ func TestHuffmanDecode(t *testing.T) {
 		expected string
 		err      bool
 	}{
+		{
+			name:     "simple a",
+			input:    []byte{0x1F}, // Huffman code for 'a'
+			expected: "a",
+			err:      false,
+		},
+		{
+			name:     "simple space",
+			input:    []byte{0x53}, // Huffman code for ' ' (space)
+			expected: " ",
+			err:      false,
+		},
 		{
 			name:     "no-cache",
 			input:    []byte{0xa8, 0xeb, 0x10, 0x64, 0x9c, 0xbf},
@@ -81,6 +96,16 @@ func TestHuffmanDecode(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
+			var correctEncoded []byte
+			correctEncoded = make([]byte, 0, 1024)
+
+			correctEncoded = hpack.AppendHuffmanString(correctEncoded, string(tc.expected))
+			if string(correctEncoded) != string(tc.input) {
+				t.Errorf("Expected encoded string %q, but got %q", hex.EncodeToString(correctEncoded), hex.EncodeToString(tc.input))
+				t.Logf("Decoded Length: %d, Enmcoded Length: %d", len(tc.expected), len(correctEncoded))
+			}
+
 			var result []byte
 			err := huffmanDecode(&result, tc.input)
 			if tc.err {
@@ -91,7 +116,7 @@ func TestHuffmanDecode(t *testing.T) {
 				if err != nil {
 					t.Errorf("Expected no error, but got: %v", err)
 				}
-				if string(result) != string(tc.expected) {
+				if string(tc.expected) != string(result) {
 					t.Errorf("Expected result %q, but got %q", tc.expected, result)
 				}
 			}

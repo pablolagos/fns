@@ -1,7 +1,6 @@
 package hpack
 
 import (
-	"bytes"
 	"fmt"
 	"sync"
 )
@@ -64,7 +63,6 @@ func initHuffmanTrie() {
 	}
 }
 
-// Add a Huffman code to the decoding trie
 func addHuffmanCode(node *huffmanNode, code uint32, length int, value int32) {
 	for i := length - 1; i >= 0; i-- {
 		bit := (code >> i) & 1
@@ -76,54 +74,53 @@ func addHuffmanCode(node *huffmanNode, code uint32, length int, value int32) {
 	node.value = value
 }
 
-func huffmanDecode(dst *[]byte, encoded []byte) error {
-	initTrieOnce.Do(initHuffmanTrie) // Ensure the Huffman trie is initialized only once
+func huffmanDecode(dst *[]byte, src []byte) error {
+	initTrieOnce.Do(initHuffmanTrie)
 
-	var result = bytes.NewBuffer(*dst)
+	if len(src) == 0 {
+		*dst = (*dst)[:0]
+		return nil
+	}
+
 	node := huffmanTrie
-	current := uint32(0)
-	bitsRead := 0
+	buf := uint32(0)
+	bits := uint8(0)
+	writeIndex := 0
 
-	for i, b := range encoded {
-		current = (current << 8) | uint32(b)
-		bitsRead += 8
+	for i := 0; i < len(src); i++ {
+		buf = (buf << 8) | uint32(src[i])
+		bits += 8
 
-		for bitsRead > 0 {
-			if node == huffmanTrie && i == len(encoded)-1 && bitsRead < 8 {
-				// We're at the last byte, starting a new symbol, and don't have a full 8 bits
-				// The remaining bits should be padding (all 1's)
-				mask := uint32((1 << bitsRead) - 1)
-				if current&mask == mask {
-					// Valid padding, we're done
-					*dst = result.Bytes()
-					return nil
-				}
-			}
+		for bits >= 8 || (i == len(src)-1 && bits > 0) {
+			bit := (buf >> (bits - 1)) & 1
+			bits--
 
-			bit := (current >> (bitsRead - 1)) & 1
 			node = node.children[bit]
-			bitsRead--
-
 			if node == nil {
-				return fmt.Errorf("invalid Huffman code")
+				fmt.Printf("Error: Invalid Huffman code at index %d\n", i)
+				return fmt.Errorf("invalid Huffman code at index %d", i)
 			}
 
 			if node.value != -1 {
-				if node.value == huffmanEOI {
-					// Ignore EOI symbol
-					node = huffmanTrie
-					continue
+				if writeIndex >= len(*dst) {
+					*dst = append(*dst, byte(node.value))
+				} else {
+					(*dst)[writeIndex] = byte(node.value)
 				}
-				result.WriteByte(byte(node.value))
-				node = huffmanTrie
+				writeIndex++
+				node = huffmanTrie // Restablecer al nodo raíz para el siguiente código
 			}
 		}
 	}
 
-	if node != huffmanTrie {
-		return fmt.Errorf("incomplete Huffman code at end of input")
+	// Verificar padding al final
+	if bits > 0 {
+		paddingMask := (1 << bits) - 1
+		if (buf & uint32(paddingMask)) != uint32(paddingMask) {
+			return fmt.Errorf("invalid padding")
+		}
 	}
 
-	*dst = result.Bytes()
+	*dst = (*dst)[:writeIndex]
 	return nil
 }
