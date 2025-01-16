@@ -1,7 +1,8 @@
-package frames
+package h2_frames
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,12 +26,28 @@ const (
 	DefaultFrameBodySize = 16384
 )
 
+// FrameTypeString maps frame types to their string representation for debug purposes
+var FrameTypeString = map[uint8]string{
+	FrameData:         "DATA",
+	FrameHeaders:      "HEADERS",
+	FramePriority:     "PRIORITY",
+	FrameRSTStream:    "RST_STREAM",
+	FrameSettings:     "SETTINGS",
+	FramePushPromise:  "PUSH_PROMISE",
+	FramePing:         "PING",
+	FrameGoAway:       "GOAWAY",
+	FrameWindowUpdate: "WINDOW_UPDATE",
+	FrameContinuation: "CONTINUATION",
+}
+
 // Frame flags
 const (
 	FlagEndStream  = 0x1
 	FlagEndHeaders = 0x4
 	FlagAck        = 0x1
 )
+
+var ErrEOF = errors.New("EOF")
 
 // Frame represents an HTTP/2 frame
 type Frame struct {
@@ -65,7 +82,7 @@ func AcquireFrame(frameType int) *Frame {
 // ReleaseFrame returns a frame to the pool if it has an allocated body. Otherwise, it is discarded
 func ReleaseFrame(frame *Frame) {
 	// Only recycle frames with allocated bodies
-	if cap(frame.Body) == DefaultFrameBodySize {
+	if frame != nil && cap(frame.Body) == DefaultFrameBodySize {
 		framePool.Put(frame)
 	}
 }
@@ -77,6 +94,9 @@ func ReadFrame(conn net.Conn) (*Frame, error) {
 
 	// Read the header
 	if _, err := io.ReadFull(conn, f.rawHeader[:]); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, ErrEOF
+		}
 		return nil, fmt.Errorf("error reading frame header: %v", err)
 	}
 

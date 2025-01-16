@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/pablolagos/fns"
 	"github.com/pablolagos/fns/reuseport"
 )
 

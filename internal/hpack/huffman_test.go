@@ -99,7 +99,6 @@ func TestHuffmanDecode(t *testing.T) {
 
 			var correctEncoded []byte
 			correctEncoded = make([]byte, 0, 1024)
-
 			correctEncoded = hpack.AppendHuffmanString(correctEncoded, string(tc.expected))
 			if string(correctEncoded) != string(tc.input) {
 				t.Errorf("Expected encoded string %q, but got %q", hex.EncodeToString(correctEncoded), hex.EncodeToString(tc.input))

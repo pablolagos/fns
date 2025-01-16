@@ -1,9 +1,21 @@
-GOPATH=$(shell go env GOPATH)
+# Get the GOPATH
+GOPATH := $(shell go env GOPATH)
+GOLANGCI_LINT := $(GOPATH)/bin/golangci-lint
+GOLANGCI_LINT_VERSION := 1.63.4
 
 .PHONY: lint
-lint:
-	# install it into ./bin/
-	@echo "Installing golangci-lint..."
-	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v1.57.2
+lint: check-version
+	@echo "Running golangci-lint..."
+	@$(GOLANGCI_LINT) run --enable=nolintlint,gochecknoinits,bodyclose,gofumpt,gocritic
 
-	${GOPATH}/bin/golangci-lint run --enable=nolintlint,gochecknoinits,bodyclose,gofumpt,gocritic
+# Install golangci-lint if it's not installed or if the version is different
+
+.PHONY: check-version
+check-version:
+	@echo "Checking for golangci-lint..."
+	@if [ ! -f $(GOLANGCI_LINT) ] || [ $$($(GOLANGCI_LINT) --version | cut -d ' ' -f4) != $(GOLANGCI_LINT_VERSION) ]; then \
+		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v$(GOLANGCI_LINT_VERSION); \
+	else \
+		echo "golangci-lint is already installed and up to date."; \
+	fi

@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"github.com/pablolagos/fns"
+	"github.com/pablolagos/fns/expvarhandler"
 )
 
 var (

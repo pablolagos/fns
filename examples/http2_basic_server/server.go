@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/pablolagos/fns/internal/h2"
 	"log"
 	"time"
 
@@ -25,7 +26,7 @@ func main() {
 	}
 
 	// Enable HTTP/2
-	fns.EnableHTTP2(s, fns.ServerConfig{Debug: true})
+	h2.EnableHTTP2(s, h2.ServerConfig{Debug: true})
 
 	// Serve the server
 	log.Println("Serving server on :8443")

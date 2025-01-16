@@ -169,6 +169,14 @@ type Server struct {
 	// non zero RequestConfig field values will overwrite the default configs
 	HeaderReceived func(header *RequestHeader) RequestConfig
 
+	// CheckReceivedHeaders is called after receiving the header
+	//
+	// The function can be used to check the request headers before the body is read
+	// Also, the UserValue can be set for further processing.
+	//
+	// If the function returns true, the connection will be closed
+	CheckReceivedHeaders func(ctx *RequestCtx) (dropConnection bool)
+
 	// ContinueHandler is called after receiving the Expect 100 Continue Header
 	//
 	// https://www.w3.org/Protocols/rfc2616/rfc2616-sec8.html#sec8.2.3
@@ -598,7 +606,7 @@ type RequestCtx struct {
 
 	logger ctxLogger
 	s      *Server
-	c      net.Conn
+	c      net.Conn // HTTP/1 underlying net connection. In HTTP/2, c is always nil
 	fbr    firstByteReader
 
 	timeoutResponse *Response

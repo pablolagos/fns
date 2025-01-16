@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/pablolagos/fns"
+	"github.com/pablolagos/fns/fasthttputil"
 )
 
 var (

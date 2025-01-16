@@ -1,3 +1,5 @@
+//go:build h2
+
 package fns
 
 import (

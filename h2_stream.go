@@ -1,180 +1,168 @@
+//go:build h2
+
 package fns
 
 import (
-	"log"
-	"sort"
 	"sync"
+	"sync/atomic"
 
+	"github.com/pablolagos/fns/internal/h2/h2_frames"
 	"github.com/pablolagos/fns/internal/hpack"
 )
 
 // StreamState represents the state of a stream
 type StreamState int
 
+// The different states a stream can be in. Order is important.
 const (
+	// StreamIdle The stream is in the IDLE state, where no frames have been exchanged yet.
 	StreamIdle StreamState = iota
+
+	// StreamOpen The stream is in the OPEN state, where it is being used to send or receive frames between the client and server.
+	// It is set when the first HEADERS frame is received.
 	StreamOpen
-	StreamHalfClosedLocal
+
+	// StreamHalfClosedRemote The client has finished sending all frames (sent the END_STREAM), but the server still can transmit data.
 	StreamHalfClosedRemote
+
+	StreamProcessing  // The stream is being processed (not part of the HTTP/2 spec)
+	StreamProcessed   // The stream has been processed (not part of the HTTP/2 spec)
+	StreamDispatching // The stream is being dispatched (not part of the HTTP/2 spec)
+
+	// StreamHalfClosedLocal The server has finished sending all frames but is still capable of receiving frames from the client.
+	StreamHalfClosedLocal
+
+	// StreamClosed The stream is closed and no more frames can be exchanged.
 	StreamClosed
 )
 
-// Stream represents an HTTP/2 stream
-type Stream struct {
-	ID              uint32
-	State           StreamState
-	Body            []byte
-	Window          int32
-	Priority        uint8
-	Headers         []hpack.HeaderField
-	ResponseHeaders []hpack.HeaderField
-	ResponseBody    []byte
-	next            *Stream
-	prev            *Stream
-	mu              sync.Mutex
-	conn            *h2ServerConn
+// h2Stream represents an HTTP/2 stream
+type h2Stream struct {
+	id         uint32
+	state      StreamState
+	window     atomic.Int32
+	priority   atomic.Int32
+	next       *h2Stream
+	prev       *h2Stream
+	mu         sync.Mutex
+	conn       *h2ServerConn
+	requestCtx *RequestCtx
+	rawHeaders []byte // TODO: use a buffer pool
+}
+
+var streamPool sync.Pool
+
+// AcquireStream retrieves a stream from the pool.
+// This function is intended to be used by the StreamManager.
+func acquireStream(id uint32, sc *h2ServerConn) *h2Stream {
+	v := streamPool.Get()
+	if v == nil {
+		ctx := sc.h2Server.s.acquireCtx(nil)
+		return &h2Stream{requestCtx: ctx, id: id, conn: sc}
+	}
+	stream := v.(*h2Stream)
+	stream.id = id
+	stream.conn = sc
+	return stream
+}
+
+func ReleaseStream(s *h2Stream) {
+	s.Reset()
+
+	streamPool.Put(s)
+}
+
+func (s *h2Stream) Reset() {
+	s.id = 0
+	s.state = StreamIdle
+	s.window.Store(0)
+	s.priority.Store(0)
+	s.requestCtx.reset()
+	s.rawHeaders = s.rawHeaders[:0]
+	s.next = nil
+	s.prev = nil
+	s.conn = nil
+}
+
+func NewStream(id uint32) *h2Stream {
+	return &h2Stream{
+		id: id,
+	}
 }
 
 // AdjustWindow adjusts the flow control window for the stream
-func (s *Stream) AdjustWindow(delta int32) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Window += delta
-	if s.Window < 0 {
+func (s *h2Stream) AdjustWindow(delta int32) {
+	newWindow := s.window.Add(delta)
+	if newWindow < 0 {
 		// Handle window underflow
 		s.conn.handleWindowUnderflow(s)
 	}
 }
 
 // UpdatePriority updates the priority of the stream
-func (s *Stream) UpdatePriority(priority uint8) {
+func (s *h2Stream) UpdatePriority(priority int32) {
+	s.priority.Store(priority)
+}
+
+// GetRequestCtx returns the stream's request context
+func (s *h2Stream) GetRequestCtx() *RequestCtx {
+	return s.requestCtx
+}
+
+// ProcessHeadersFrame processes HEADERS and CONTINUATION frames.
+// It appends the headers data to the stream's raw headers buffer.
+// If the END_HEADERS flag is set, it decodes the raw headers into the stream's request headers.
+// Change the stream state to StreamHalfClosedRemote if the END_STREAM flag is set, or
+// change state to StreamOpen if headers are still incomplete.
+func (s *h2Stream) ProcessHeadersFrame(frame *h2_frames.Frame, hpackCodec *hpack.Codec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Priority = priority
-}
 
-// StreamManager manages active streams
-type StreamManager struct {
-	mu    sync.Mutex
-	head  *Stream
-	tail  *Stream
-	count int
-}
+	// Streams receiving headers are in the OPEN state
+	s.state = StreamOpen
 
-// NewStreamManager creates a new StreamManager
-func NewStreamManager() *StreamManager {
-	return &StreamManager{}
-}
+	// Append headers data
+	s.rawHeaders = append(s.rawHeaders, frame.Body...)
 
-// CreateStream creates a new stream and adds it to the manager
-func (sm *StreamManager) CreateStream(streamID uint32, conn *h2ServerConn) *Stream {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	// Check for END_HEADERS flag
+	if frame.Flags&h2_frames.FlagEndHeaders != 0 {
+		// END_HEADERS flag is set, headers are complete
+		s.conn.debug.Infof("Received complete headers for stream %d", s.id)
 
-	stream := &Stream{
-		ID:   streamID,
-		conn: conn,
-	}
+		// Decode the raw headers into the stream's request headers
+		s.decodeRequestHeaders(hpackCodec)
 
-	if sm.tail == nil {
-		sm.head = stream
-		sm.tail = stream
-	} else {
-		sm.tail.next = stream
-		stream.prev = sm.tail
-		sm.tail = stream
-	}
-
-	sm.count++
-	return stream
-}
-
-// GetStream retrieves a stream by its ID
-func (sm *StreamManager) GetStream(streamID uint32) (*Stream, bool) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	for stream := sm.head; stream != nil; stream = stream.next {
-		if stream.ID == streamID {
-			return stream, true
-		}
-	}
-	return nil, false
-}
-
-// RemoveStream removes a stream by its ID
-func (sm *StreamManager) RemoveStream(streamID uint32) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	for stream := sm.head; stream != nil; stream = stream.next {
-		if stream.ID == streamID {
-			if stream.prev != nil {
-				stream.prev.next = stream.next
-			} else {
-				sm.head = stream.next
-			}
-
-			if stream.next != nil {
-				stream.next.prev = stream.prev
-			} else {
-				sm.tail = stream.prev
-			}
-
-			sm.count--
-			break
+		// If the stream has the END_STREAM flag, process it
+		if frame.Flags&h2_frames.FlagEndStream != 0 {
+			s.state = StreamHalfClosedRemote
 		}
 	}
 }
 
-// UpdateStreamState updates the state of a stream
-func (sm *StreamManager) UpdateStreamState(id uint32, state StreamState) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+// DecodeRequestHeaders decodes stream request body into the stream's request headers
+func (s *h2Stream) decodeRequestHeaders(hpack *hpack.Codec) {
+	h := &s.requestCtx.Request.Header
+	h.Reset()
 
-	for current := sm.head; current != nil; current = current.next {
-		if current.ID == id {
-			current.State = state
-			return
+	// TODO: Fix request URI
+	hpack.Decoder.DecodeIterate(s.rawHeaders, func(key, val []byte) {
+		// map http2 header fields to http1.1 header fields
+		switch string(key) {
+		case ":method":
+			h.SetMethodBytes(val)
+		case ":path":
+			h.SetRequestURIBytes(val)
+		case ":scheme":
+			h.SetRequestURIBytes(val)
+		case ":authority":
+			h.SetHostBytes(val)
+		default:
+			h.AddBytesKV(key, val)
 		}
-	}
-}
 
-// ScheduleStreams schedules the streams based on their priority
-func (sm *StreamManager) ScheduleStreams() []*Stream {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	// Gather all streams and sort by priority
-	var streams []*Stream
-	for current := sm.head; current != nil; current = current.next {
-		streams = append(streams, current)
-	}
-
-	// Sort streams by priority
-	sort.Slice(streams, func(i, j int) bool {
-		return streams[i].Priority < streams[j].Priority
+		h.AddBytesKV(key, val)
 	})
 
-	return streams
-}
-
-// ProcessStreams processes the streams based on their scheduled order
-func (sm *StreamManager) ProcessStreams() {
-	streams := sm.ScheduleStreams()
-
-	for _, stream := range streams {
-		// Process each stream based on its priority
-		log.Printf("Processing stream %d with priority %d\n", stream.ID, stream.Priority)
-		// Here you would add the logic to handle the actual stream data,
-		// for example, reading data from the stream, writing data to the stream,
-		// handling flow control, etc.
-	}
-}
-
-// Count returns the number of active streams
-func (sm *StreamManager) Count() int {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	return sm.count
+	h.noHTTP11 = true
+	h.proto = strHTTP20
 }

@@ -21,6 +21,7 @@ var (
 	strHTTPS                    = []byte("https")
 	strHTTP10                   = []byte("HTTP/1.0")
 	strHTTP11                   = []byte("HTTP/1.1")
+	strHTTP20                   = []byte("HTTP/2.0")
 	strColon                    = []byte(":")
 	strColonSlashSlash          = []byte("://")
 	strColonSpace               = []byte(": ")

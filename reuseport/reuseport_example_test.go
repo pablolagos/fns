@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/pablolagos/fns"
 	"github.com/pablolagos/fns/reuseport"
 )
 

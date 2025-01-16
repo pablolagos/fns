@@ -1,3 +1,5 @@
+//go:build h2
+
 package fns
 
 import (
@@ -8,8 +10,9 @@ import (
 	"net"
 	"sync"
 
+	"github.com/pablolagos/fns/internal/h2/h2_frames"
+
 	"github.com/pablolagos/fns/internal/debuglog"
-	"github.com/pablolagos/fns/internal/frames"
 	"github.com/pablolagos/fns/internal/hpack"
 )
 
@@ -29,32 +32,40 @@ var ErrInvalidPreface = errors.New("invalid client preface")
 
 // h2ServerConn represents a single HTTP/2 connection
 type h2ServerConn struct {
-	conn            net.Conn
+	h2Server        *h2Server
+	netConn         net.Conn
 	serverSettings  Settings
 	clientSettings  Settings
 	streamManager   *StreamManager
+	streamProcessor *StreamProcessor
 	flowWindow      int32
 	mu              sync.Mutex
-	encoder         *hpack.Encoder
-	decoder         *hpack.Decoder
-	streamProcessor *StreamProcessor
-	s               *Server
+	hpack           *hpack.Codec
+	logger          Logger
 	debug           *debuglog.Logger
+}
+
+func newH2ServerConn(conn net.Conn, h2s *h2Server) *h2ServerConn {
+	return &h2ServerConn{
+		h2Server: h2s,
+		netConn:  conn,
+		logger:   h2s.conf.Logger,
+		debug:    h2s.debug,
+	}
 }
 
 // Serve handles the HTTP/2 connection
 func (sc *h2ServerConn) Serve() error {
-	sc.debug.Infof("Serving connection from %v", sc.conn.RemoteAddr())
+	sc.debug.Infof("Serving connection from %v", sc.netConn.RemoteAddr())
 	IncrementConnections()
 	defer func() {
-		sc.debug.Infof("Closing connection from %v", sc.conn.RemoteAddr())
-		sc.conn.Close()
+		sc.debug.Infof("Closing connection for %v", sc.netConn.RemoteAddr())
+		sc.netConn.Close()
 		DecrementConnections()
 	}()
 
-	sc.encoder = hpack.NewEncoder()
-	sc.decoder = hpack.NewDecoder()
-	sc.streamProcessor = NewStreamProcessor()
+	sc.hpack = hpack.NewCodec()
+	sc.streamProcessor = NewStreamProcessor(sc.logger, sc.debug, sc.hpack)
 	sc.serverSettings = defaultServerSettings
 	sc.clientSettings = NewSettings()
 
@@ -65,56 +76,62 @@ func (sc *h2ServerConn) Serve() error {
 	// Send initial SETTINGS frame
 	if err := sc.handshake(); err != nil {
 		sc.debug.Errorf("Handshake error: %v", err)
-		sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+		sc.handleError(err, 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 		return err
 	}
 
 	// Main loop to handle frames
 	for {
-		frame, err := frames.ReadFrame(sc.conn)
+		frame, err := h2_frames.ReadFrame(sc.netConn)
 		if err != nil {
-			sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+			if errors.Is(err, h2_frames.ErrEOF) {
+				h2_frames.ReleaseFrame(frame)
+				return nil
+			}
+			sc.handleError(err, 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 			return err
 		}
 
+		sc.debug.Infof("Received frame: stream %d, type %s (%x)", frame.StreamID, h2_frames.FrameTypeString[frame.Type], frame.Type)
+
 		// Handle the frame based on its type
 		switch frame.Type {
-		case frames.FrameData:
+		case h2_frames.FrameData:
 			sc.handleDataFrame(frame)
-		case frames.FrameHeaders, frames.FrameContinuation:
+		case h2_frames.FrameHeaders, h2_frames.FrameContinuation:
 			sc.handleHeadersFrame(frame)
-		case frames.FrameSettings:
+		case h2_frames.FrameSettings:
 			sc.handleSettingsFrame(frame)
-		case frames.FramePing:
+		case h2_frames.FramePing:
 			sc.handlePingFrame(frame)
-		case frames.FrameGoAway:
+		case h2_frames.FrameGoAway:
 			sc.handleGoAwayFrame(frame)
 			return nil
-		case frames.FrameWindowUpdate:
+		case h2_frames.FrameWindowUpdate:
 			sc.handleWindowUpdateFrame(frame)
-		case frames.FrameRSTStream:
+		case h2_frames.FrameRSTStream:
 			sc.handleRSTStreamFrame(frame)
-		case frames.FramePriority:
+		case h2_frames.FramePriority:
 			sc.handlePriorityFrame(frame)
-		case frames.FramePushPromise:
+		case h2_frames.FramePushPromise:
 			sc.handlePushPromiseFrame(frame)
 		default:
-			sc.handleError(fmt.Errorf("unhandled frame type: %v", frame.Type), 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+			sc.handleError(fmt.Errorf("unhandled frame type: %v", frame.Type), 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 			return fmt.Errorf("unhandled frame type: %v", frame.Type)
 		}
 
 		// Release the frame after handling it
-		frames.ReleaseFrame(frame)
+		h2_frames.ReleaseFrame(frame)
 	}
 }
 
 // handleError handles errors by logging, sending appropriate frames, and closing the connection if necessary
 func (sc *h2ServerConn) handleError(err error, streamID uint32, frameType uint8, errorCode uint32) {
-	log.Println("Error:", err)
-	if frameType == frames.FrameGoAway {
+	log.Println("[H2] Error:", err)
+	if frameType == h2_frames.FrameGoAway {
 		sc.sendGoAway(streamID, errorCode)
 		sc.closeConnection()
-	} else if frameType == frames.FrameRSTStream {
+	} else if frameType == h2_frames.FrameRSTStream {
 		sc.sendRSTStream(streamID, errorCode)
 	}
 }
@@ -124,7 +141,7 @@ func (sc *h2ServerConn) handshake() error {
 	// Read the client preface
 	sc.debug.Info("Reading client preface")
 	preface := make([]byte, len(ClientPreface))
-	if _, err := sc.conn.Read(preface); err != nil {
+	if _, err := sc.netConn.Read(preface); err != nil {
 		return fmt.Errorf("error reading client preface: %v", err)
 	}
 	if string(preface) != ClientPreface {
@@ -133,17 +150,17 @@ func (sc *h2ServerConn) handshake() error {
 
 	// Send our initial SETTINGS frame
 	sc.debug.Info("Sending initial SETTINGS frame")
-	if err := sendSettings(sc.conn, sc.serverSettings); err != nil {
+	if err := sendSettings(sc.netConn, sc.serverSettings); err != nil {
 		return fmt.Errorf("error sending initial SETTINGS frame: %v", err)
 	}
 
 	// Receive SETTINGS frame from client
 	sc.debug.Info("Reading initial SETTINGS frame")
-	frame, err := frames.ReadFrame(sc.conn)
+	frame, err := h2_frames.ReadFrame(sc.netConn)
 	if err != nil {
 		return err
 	}
-	if frame.Type != frames.FrameSettings {
+	if frame.Type != h2_frames.FrameSettings {
 		return fmt.Errorf("expected SETTINGS frame, got %v", frame.Type)
 	}
 
@@ -152,79 +169,72 @@ func (sc *h2ServerConn) handshake() error {
 
 	// Send SETTINGS ACK
 	sc.debug.Info("Sending SETTINGS ACK")
-	if err := sendSettingsAck(sc.conn); err != nil {
+	if err := sendSettingsAck(sc.netConn); err != nil {
 		return fmt.Errorf("error sending SETTINGS ACK: %v", err)
 	}
 	return nil
 }
 
 // handleSettingsFrame handles SETTINGS frames
-func (sc *h2ServerConn) handleSettingsFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleSettingsFrame(frame *h2_frames.Frame) {
 	// Apply the received serverSettings
 	applySettings(frame, &sc.serverSettings)
 
 	// Send SETTINGS ACK
-	if err := sendSettingsAck(sc.conn); err != nil {
-		sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+	if err := sendSettingsAck(sc.netConn); err != nil {
+		sc.handleError(err, 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 	}
 }
 
 // handleHeadersFrame handles HEADERS and CONTINUATION frames
-func (sc *h2ServerConn) handleHeadersFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleHeadersFrame(frame *h2_frames.Frame) {
 	// Create or update the stream
-	stream, exists := sc.streamManager.GetStream(frame.StreamID)
-	if !exists {
+	sc.debug.Infof("Handling HEADERS frame for stream %d", frame.StreamID)
+	stream := sc.streamManager.GetStream(frame.StreamID)
+	if stream == nil {
 		stream = sc.streamManager.CreateStream(frame.StreamID, sc)
 	}
 
-	// Process the headers
-	sc.processHeadersFrame(stream, frame)
-}
-
-func (sc *h2ServerConn) processHeadersFrame(stream *Stream, frame *frames.Frame) {
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-
-	// Append headers data
-	stream.Body = append(stream.Body, frame.Body...)
-
-	// Check for END_HEADERS flag
-	if frame.Flags&frames.FlagEndHeaders != 0 {
-		// END_HEADERS flag is set, headers are complete
-		log.Printf("Received complete headers for stream %d\n", stream.ID)
-		headerFields, err := sc.decoder.Decode(stream.Body)
-		if err != nil {
-			sc.handleError(err, stream.ID, frames.FrameRSTStream, 0x1) // PROTOCOL_ERROR
-			return
+	stream.ProcessHeadersFrame(frame, sc.hpack)
+	// If the stream has the END_STREAM flag, process it
+	if stream.state == StreamHalfClosedRemote {
+		// Call early check hook
+		if sc.h2Server.s.CheckReceivedHeaders != nil {
+			closeConnection := sc.h2Server.s.CheckReceivedHeaders(stream.GetRequestCtx())
+			if closeConnection {
+				sc.sendGoAway(stream.id, h2_frames.FrameGoAway) // REFUSED_STREAM
+				sc.closeConnection()
+				return
+			}
 		}
-		stream.Headers = headerFields
-		// Reset the body buffer after processing headers
-		stream.Body = nil
-		// If the stream does not have a body or has received the END_STREAM flag, process it
-		if frame.Flags&frames.FlagEndStream != 0 {
-			stream.State = StreamHalfClosedRemote
-			sc.streamProcessor.ProcessStream(stream, sc.s)
-		} else if stream.State == StreamOpen {
-			stream.State = StreamHalfClosedLocal
+		// Call on-headers-received hook. TODO: Do something with the return value
+		if sc.h2Server.s.HeaderReceived != nil {
+			sc.h2Server.s.HeaderReceived(&stream.requestCtx.Request.Header)
 		}
+
+		sc.streamProcessor.ProcessStream(stream, sc.h2Server.s)
+
 	}
+
+	// TODO: Execute stream
 }
 
 // handleWindowUpdateFrame handles WINDOW_UPDATE frames
-func (sc *h2ServerConn) handleWindowUpdateFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleWindowUpdateFrame(frame *h2_frames.Frame) {
+	sc.debug.Infof("Received WINDOW_UPDATE frame for stream %d", frame.StreamID)
 	// Update the flow control window
 	if frame.StreamID == 0 {
 		// Connection-level window update
 		delta := int32(binary.BigEndian.Uint32(frame.Body))
 		sc.flowWindow += delta
 		if sc.flowWindow < 0 {
-			sc.handleError(fmt.Errorf("flow control error"), 0, frames.FrameGoAway, 0x3) // FLOW_CONTROL_ERROR
+			sc.handleError(errors.New("flow control error"), 0, h2_frames.FrameGoAway, 0x3) // FLOW_CONTROL_ERROR
 		}
 	} else {
 		// Stream-level window update
-		stream, exists := sc.streamManager.GetStream(frame.StreamID)
-		if !exists {
-			sc.handleError(fmt.Errorf("stream closed"), frame.StreamID, frames.FrameRSTStream, 0x5) // STREAM_CLOSED
+		stream := sc.streamManager.GetStream(frame.StreamID)
+		if stream == nil {
+			sc.handleError(errors.New("stream closed"), frame.StreamID, h2_frames.FrameRSTStream, 0x5) // STREAM_CLOSED
 			return
 		}
 		stream.AdjustWindow(int32(binary.BigEndian.Uint32(frame.Body)))
@@ -232,72 +242,64 @@ func (sc *h2ServerConn) handleWindowUpdateFrame(frame *frames.Frame) {
 }
 
 // handleDataFrame handles DATA frames
-func (sc *h2ServerConn) handleDataFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleDataFrame(frame *h2_frames.Frame) {
 	// Retrieve the stream
-	stream, exists := sc.streamManager.GetStream(frame.StreamID)
-	if !exists {
-		sc.handleError(fmt.Errorf("stream closed"), frame.StreamID, frames.FrameRSTStream, 0x5) // Error code: STREAM_CLOSED
+	stream := sc.streamManager.GetStream(frame.StreamID)
+	if stream == nil {
+		sc.handleError(fmt.Errorf("stream closed"), frame.StreamID, h2_frames.FrameRSTStream, 0x5) // Error code: STREAM_CLOSED
 		return
 	}
 
-	// Process the data
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-
 	// Adjust the flow control window
-	sc.flowWindow -= int32(len(frame.Body))
-	stream.Window -= int32(len(frame.Body))
+	delta := int32(len(frame.Body))
+	sc.flowWindow -= delta
+	stream.window.Add(-delta)
 
-	if sc.flowWindow < 0 || stream.Window < 0 {
+	if sc.flowWindow < 0 || stream.window.Load() < 0 {
 		// Handle window underflow
 		sc.handleWindowUnderflow(stream)
 		return
 	}
 
 	// Append data to stream body
-	stream.Body = append(stream.Body, frame.Body...)
+	stream.requestCtx.Request.AppendBody(frame.Body)
 
 	// Check for END_STREAM flag
-	if frame.Flags&frames.FlagEndStream != 0 {
-		stream.State = StreamHalfClosedRemote
+	if frame.Flags&h2_frames.FlagEndStream != 0 {
+		stream.state = StreamHalfClosedRemote
 		sc.streamProcessor.ProcessStream(stream, sc.s)
 	}
 }
 
 // handleRSTStreamFrame handles RST_STREAM frames
-func (sc *h2ServerConn) handleRSTStreamFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleRSTStreamFrame(frame *h2_frames.Frame) {
 	// Log and close the stream
 	log.Printf("Received RST_STREAM frame for stream %d\n", frame.StreamID)
 	sc.streamManager.RemoveStream(frame.StreamID)
 }
 
 // handlePriorityFrame handles PRIORITY frames
-func (sc *h2ServerConn) handlePriorityFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handlePriorityFrame(frame *h2_frames.Frame) {
 	// PRIORITY frames are used to change the priority of a stream
-	log.Printf("Received PRIORITY frame for stream %d\n", frame.StreamID)
-	stream, exists := sc.streamManager.GetStream(frame.StreamID)
-	if !exists {
-		sc.handleError(fmt.Errorf("stream closed"), frame.StreamID, frames.FrameRSTStream, 0x5) // STREAM_CLOSED
-		return
-	}
+	sc.debug.Infof("Received PRIORITY frame for stream %d", frame.StreamID)
 
 	// Parse the priority value from the frame body
 	if len(frame.Body) < 5 {
-		sc.handleError(fmt.Errorf("priority frame body too short"), 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+		sc.handleError(fmt.Errorf("priority frame body too short"), 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 		return
 	}
-	priority := frame.Body[0]
-	stream.UpdatePriority(priority)
+
+	sc.streamManager.SetStreamPriority(frame.StreamID, int32(frame.Body[0]), sc)
 }
 
 // handlePushPromiseFrame handles PUSH_PROMISE frames
-func (sc *h2ServerConn) handlePushPromiseFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handlePushPromiseFrame(frame *h2_frames.Frame) {
 	// PUSH_PROMISE frames are used to initiate server push
 	log.Printf("Received PUSH_PROMISE frame, initiating server push\n")
 
-	// Parse the PUSH_PROMISE frame and log the promised stream ID
+	// Parse the PUSH_PROMISE frame and log the promised stream id
 	if len(frame.Body) < 4 {
-		sc.handleError(fmt.Errorf("PUSH_PROMISE frame body too short"), 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+		sc.handleError(fmt.Errorf("PUSH_PROMISE frame body too short"), 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 		return
 	}
 	promisedStreamID := binary.BigEndian.Uint32(frame.Body[:4])
@@ -308,49 +310,49 @@ func (sc *h2ServerConn) handlePushPromiseFrame(frame *frames.Frame) {
 }
 
 // handlePingFrame handles PING frames
-func (sc *h2ServerConn) handlePingFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handlePingFrame(frame *h2_frames.Frame) {
 	// Respond with PING ACK
-	frame.Flags |= frames.FlagAck // ACK flag
-	if err := frame.WriteTo(sc.conn); err != nil {
-		sc.handleError(err, 0, frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
+	frame.Flags |= h2_frames.FlagAck // ACK flag
+	if err := frame.WriteTo(sc.netConn); err != nil {
+		sc.handleError(err, 0, h2_frames.FrameGoAway, 0x1) // PROTOCOL_ERROR
 	}
 }
 
 // handleGoAwayFrame handles GOAWAY frames
-func (sc *h2ServerConn) handleGoAwayFrame(frame *frames.Frame) {
+func (sc *h2ServerConn) handleGoAwayFrame(frame *h2_frames.Frame) {
 	// Log and close the connection
 	log.Printf("Received GOAWAY frame, closing connection\n")
 	sc.closeConnection()
 }
 
 // handleWindowUnderflow handles flow control window underflow
-func (sc *h2ServerConn) handleWindowUnderflow(stream *Stream) {
-	log.Printf("Flow control window underflow for stream %d\n", stream.ID)
+func (sc *h2ServerConn) handleWindowUnderflow(stream *h2Stream) {
+	log.Printf("Flow control window underflow for stream %d\n", stream.id)
 	// Send RST_STREAM for the affected stream
-	sc.sendRSTStream(stream.ID, 0x3) // Error code: FLOW_CONTROL_ERROR
-	sc.streamManager.RemoveStream(stream.ID)
+	sc.sendRSTStream(stream.id, 0x3) // Error code: FLOW_CONTROL_ERROR
+	sc.streamManager.RemoveStream(stream.id)
 }
 
 // sendRSTStream sends a RST_STREAM frame
 func (sc *h2ServerConn) sendRSTStream(streamID uint32, errorCode uint32) {
-	frame := frames.AcquireFrame(frames.FrameRSTStream)
-	defer frames.ReleaseFrame(frame)
+	frame := h2_frames.AcquireFrame(h2_frames.FrameRSTStream)
+	defer h2_frames.ReleaseFrame(frame)
 	frame.StreamID = streamID
 	frame.Body = make([]byte, 4)
 	binary.BigEndian.PutUint32(frame.Body, errorCode)
-	if err := frame.WriteTo(sc.conn); err != nil {
+	if err := frame.WriteTo(sc.netConn); err != nil {
 		log.Println("Error sending RST_STREAM frame:", err)
 	}
 }
 
 // sendGoAway sends a GOAWAY frame
 func (sc *h2ServerConn) sendGoAway(lastStreamID uint32, errorCode uint32) {
-	frame := frames.AcquireFrame(frames.FrameGoAway)
-	defer frames.ReleaseFrame(frame)
+	frame := h2_frames.AcquireFrame(h2_frames.FrameGoAway)
+	defer h2_frames.ReleaseFrame(frame)
 	frame.Body = make([]byte, 8)
 	binary.BigEndian.PutUint32(frame.Body[:4], lastStreamID)
 	binary.BigEndian.PutUint32(frame.Body[4:], errorCode)
-	if err := frame.WriteTo(sc.conn); err != nil {
+	if err := frame.WriteTo(sc.netConn); err != nil {
 		log.Println("Error sending GOAWAY frame:", err)
 	}
 }
@@ -358,19 +360,19 @@ func (sc *h2ServerConn) sendGoAway(lastStreamID uint32, errorCode uint32) {
 // closeConnection closes the connection and releases resources
 func (sc *h2ServerConn) closeConnection() {
 	// Close the connection
-	sc.conn.Close()
+	sc.netConn.Close()
 
 	// Clean up resources
 	for current := sc.streamManager.head; current != nil; current = current.next {
-		sc.streamManager.RemoveStream(current.ID)
+		sc.streamManager.RemoveStream(current.id)
 	}
 	log.Println("Connection closed and resources released")
 }
 
 // sendSettings sends a SETTINGS frame
 func sendSettings(conn net.Conn, settings Settings) error {
-	frame := frames.AcquireFrame(frames.FrameSettings)
-	defer frames.ReleaseFrame(frame)
+	frame := h2_frames.AcquireFrame(h2_frames.FrameSettings)
+	defer h2_frames.ReleaseFrame(frame)
 
 	err := settings.PutParams(&frame.Body)
 	if err != nil {
@@ -381,7 +383,7 @@ func sendSettings(conn net.Conn, settings Settings) error {
 }
 
 // applySettings applies the received serverSettings
-func applySettings(frame *frames.Frame, settings *Settings) {
+func applySettings(frame *h2_frames.Frame, settings *Settings) {
 	offset := 0
 	for offset < len(frame.Body) {
 		id := binary.BigEndian.Uint16(frame.Body[offset : offset+2])
@@ -393,8 +395,8 @@ func applySettings(frame *frames.Frame, settings *Settings) {
 
 // sendSettingsAck sends a SETTINGS ACK frame
 func sendSettingsAck(conn net.Conn) error {
-	frame := frames.AcquireFrame(frames.FrameSettings)
-	defer frames.ReleaseFrame(frame)
-	frame.Flags = frames.FlagAck // ACK flag
+	frame := h2_frames.AcquireFrame(h2_frames.FrameSettings)
+	defer h2_frames.ReleaseFrame(frame)
+	frame.Flags = h2_frames.FlagAck // ACK flag
 	return frame.WriteTo(conn)
 }

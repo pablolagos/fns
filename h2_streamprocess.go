@@ -1,100 +1,48 @@
+//go:build h2
+
 package fns
 
 import (
 	"log"
 
+	"github.com/pablolagos/fns/internal/debuglog"
+
 	"github.com/pablolagos/fns/internal/hpack"
 )
 
 // StreamProcessor handles the processing of HTTP/2 streams
-type StreamProcessor struct{}
+type StreamProcessor struct {
+	logger Logger
+	debug  *debuglog.Logger
+	hpack  *hpack.Codec
+}
 
 // NewStreamProcessor creates a new StreamProcessor
-func NewStreamProcessor() *StreamProcessor {
-	return &StreamProcessor{}
+func NewStreamProcessor(logger Logger, debug *debuglog.Logger, hpackCodec *hpack.Codec) *StreamProcessor {
+	return &StreamProcessor{
+		logger: logger,
+		debug:  debug,
+		hpack:  hpackCodec,
+	}
 }
 
 // ProcessStream processes a completed HTTP/2 stream
-func (sp *StreamProcessor) ProcessStream(stream *Stream, s *Server) {
-	// Create a new RequestCtx
-	ctx := &RequestCtx{}
+func (sp *StreamProcessor) ProcessStream(stream *h2Stream, s *Server) {
+	sp.debug.Infof("Processing stream %v", stream)
 
-	// Populate the RequestCtx with the headers and body from the stream
-	sp.populateRequestCtx(ctx, stream)
+	// Call the handler. TODO: implement a worker pool with limited number of workers
+	s.Handler(stream.requestCtx)
 
-	// Call the handler
-	s.Handler(ctx)
+	sp.processResponse(stream)
 
-	// Process the response from the handler
-	sp.processResponse(ctx, stream)
-}
+	// Send the response using HEADER and DATA frames
+	stream.sendResponse()
 
-// populateRequestCtx populates the RequestCtx with data from the stream
-func (sp *StreamProcessor) populateRequestCtx(ctx *RequestCtx, stream *Stream) {
-	// Parse headers from the stream and populate the RequestCtx
-	for _, headerField := range stream.Headers {
-		ctx.Request.Header.Set(headerField.Name, headerField.Value)
-	}
-
-	// Determine the HTTP method
-	method := ctx.Request.Header.Method()
-	if len(method) == 0 {
-		method = []byte("GET") // Default method if not set
-	}
-	ctx.Request.Header.SetMethodBytes(method)
-
-	// Set the request body
-	ctx.Request.SetBody(stream.Body)
-
-	// Extract the URI from the headers
-	uri := ctx.Request.Header.Peek(":path")
-	if uri != nil {
-		ctx.Request.SetRequestURIBytes(uri)
-	}
-
-	// Set the host
-	host := ctx.Request.Header.Peek("host")
-	if host != nil {
-		ctx.Request.SetHostBytes(host)
-	}
-
-	// Set the scheme
-	scheme := ctx.Request.Header.Peek(":scheme")
-	if scheme == nil {
-		scheme = []byte("https") // Default to https if not set
-	}
-	ctx.Request.URI().SetSchemeBytes(scheme)
-
-	// Set the authority (host:port)
-	authority := ctx.Request.Header.Peek(":authority")
-	if authority != nil {
-		ctx.Request.URI().SetHostBytes(authority)
-	}
-
-	// Set the remote address
-	remoteAddr := stream.conn.conn.RemoteAddr()
-	ctx.Init(&ctx.Request, remoteAddr, ctx.Logger())
-
-	// Log the populated request context for debugging
-	log.Printf("Request Headers: %s", ctx.Request.Header.String())
-	log.Printf("Request URI: %s", ctx.Request.URI().String())
-	log.Printf("Request Body: %s", string(ctx.Request.Body()))
 }
 
 // processResponse processes the response and updates the stream
-func (sp *StreamProcessor) processResponse(ctx *RequestCtx, stream *Stream) {
-	// Copy the response headers and body from the RequestCtx to the stream
-	response := ctx.Response
-	stream.ResponseHeaders = make([]hpack.HeaderField, 0, response.Header.Len())
-	response.Header.VisitAll(func(key, value []byte) {
-		stream.ResponseHeaders = append(stream.ResponseHeaders, hpack.HeaderField{
-			Name:  string(key),
-			Value: string(value),
-		})
-	})
-	stream.ResponseBody = response.Body()
-
+func (sp *StreamProcessor) processResponse(stream *h2Stream) {
 	// Log the processed response for debugging
-	log.Printf("Response Headers: %s", response.Header.String())
-	log.Printf("Response Body: %s", string(response.Body()))
+	log.Printf("Response Headers: %s", stream.requestCtx.Response.Header.String())
+	log.Printf("Response Body: %s", string(stream.requestCtx.Response.Body()))
 }

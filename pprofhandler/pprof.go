@@ -5,6 +5,7 @@ import (
 	"net/http/pprof"
 	rtp "runtime/pprof"
 
+	"github.com/pablolagos/fns"
 	"github.com/pablolagos/fns/fasthttpadaptor"
 )
 
