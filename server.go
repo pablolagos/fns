@@ -1540,6 +1540,10 @@ func (ctx *RequestCtx) BytesSent() int {
 
 // WriteString appends s to response body.
 func (ctx *RequestCtx) WriteString(s string) (int, error) {
+	if ctx.disableBuffering {
+		return ctx.writeDirect([]byte(s))
+	}
+
 	ctx.Response.AppendBodyString(s)
 	return len(s), nil
 }
