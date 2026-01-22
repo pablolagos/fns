@@ -3392,3 +3392,255 @@ func Test_getRedirectURL(t *testing.T) {
 		})
 	}
 }
+
+// TestConnectionNotReusedWhenBodyNotFullyRead verifies that when a streaming response
+// body is not fully read before closing, the connection is NOT returned to the pool.
+// This prevents HTTP desync issues where leftover data from the previous response
+// corrupts the next request on the same connection.
+func TestConnectionNotReusedWhenBodyNotFullyRead(t *testing.T) {
+	t.Parallel()
+
+	ln := fasthttputil.NewInmemoryListener()
+	bodyContent := strings.Repeat("X", 10000) // 10KB body
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.SetStatusCode(StatusOK)
+			ctx.SetBodyString(bodyContent)
+		},
+	}
+	go s.Serve(ln) //nolint:errcheck
+
+	var dialsCount int32
+	c := &HostClient{
+		Addr:               "foobar",
+		StreamResponseBody: true,
+		// Set a small MaxResponseBodySize to trigger true streaming mode
+		// When body exceeds this size, it uses requestStream instead of bytes.Reader
+		MaxResponseBodySize: 1000,
+		Dial: func(addr string) (net.Conn, error) {
+			atomic.AddInt32(&dialsCount, 1)
+			return ln.Dial()
+		},
+	}
+
+	// First request: read only partial body, then close
+	req := AcquireRequest()
+	resp := AcquireResponse()
+	req.SetRequestURI("http://foobar/test1")
+	if err := c.Do(req, resp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read only 500 bytes (partial read)
+	stream := resp.BodyStream()
+	buf := make([]byte, 500)
+	n, err := stream.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Fatalf("unexpected error reading partial body: %v", err)
+	}
+	if n != 500 {
+		t.Fatalf("expected to read 500 bytes, got %d", n)
+	}
+
+	// Close the stream without reading the rest
+	if err := resp.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing body stream: %v", err)
+	}
+	ReleaseRequest(req)
+	ReleaseResponse(resp)
+
+	// Second request: should work correctly (new connection if fix is working)
+	req2 := AcquireRequest()
+	resp2 := AcquireResponse()
+	req2.SetRequestURI("http://foobar/test2")
+	if err := c.Do(req2, resp2); err != nil {
+		t.Fatalf("unexpected error on second request: %v", err)
+	}
+
+	// Read full body
+	stream2 := resp2.BodyStream()
+	fullBody, err := io.ReadAll(stream2)
+	if err != nil {
+		t.Fatalf("error reading second response body: %v", err)
+	}
+
+	// Verify body is correct (not corrupted by leftover data)
+	if string(fullBody) != bodyContent {
+		t.Fatalf("second response body corrupted. Got %d bytes, expected %d bytes", len(fullBody), len(bodyContent))
+	}
+
+	if err := resp2.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing second body stream: %v", err)
+	}
+	ReleaseRequest(req2)
+	ReleaseResponse(resp2)
+
+	// Verify that 2 dials happened (connection was not reused due to partial read)
+	if dials := atomic.LoadInt32(&dialsCount); dials != 2 {
+		t.Fatalf("expected 2 dials (connection not reused), got %d", dials)
+	}
+
+	ln.Close()
+}
+
+// TestConnectionReusedWhenBodyFullyRead verifies that when a streaming response
+// body is fully read before closing, the connection IS returned to the pool for reuse.
+func TestConnectionReusedWhenBodyFullyRead(t *testing.T) {
+	t.Parallel()
+
+	ln := fasthttputil.NewInmemoryListener()
+	bodyContent := "hello world"
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.SetStatusCode(StatusOK)
+			ctx.SetBodyString(bodyContent)
+		},
+	}
+	go s.Serve(ln) //nolint:errcheck
+
+	var dialsCount int32
+	c := &HostClient{
+		Addr:               "foobar",
+		StreamResponseBody: true,
+		Dial: func(addr string) (net.Conn, error) {
+			atomic.AddInt32(&dialsCount, 1)
+			return ln.Dial()
+		},
+	}
+
+	// First request: read full body
+	req := AcquireRequest()
+	resp := AcquireResponse()
+	req.SetRequestURI("http://foobar/test1")
+	if err := c.Do(req, resp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stream := resp.BodyStream()
+	fullBody, err := io.ReadAll(stream)
+	if err != nil {
+		t.Fatalf("error reading body: %v", err)
+	}
+	if string(fullBody) != bodyContent {
+		t.Fatalf("unexpected body: %q", fullBody)
+	}
+
+	if err := resp.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing body stream: %v", err)
+	}
+	ReleaseRequest(req)
+	ReleaseResponse(resp)
+
+	// Second request: should reuse the same connection
+	req2 := AcquireRequest()
+	resp2 := AcquireResponse()
+	req2.SetRequestURI("http://foobar/test2")
+	if err := c.Do(req2, resp2); err != nil {
+		t.Fatalf("unexpected error on second request: %v", err)
+	}
+
+	stream2 := resp2.BodyStream()
+	fullBody2, err := io.ReadAll(stream2)
+	if err != nil {
+		t.Fatalf("error reading second body: %v", err)
+	}
+	if string(fullBody2) != bodyContent {
+		t.Fatalf("unexpected second body: %q", fullBody2)
+	}
+
+	if err := resp2.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing second body stream: %v", err)
+	}
+	ReleaseRequest(req2)
+	ReleaseResponse(resp2)
+
+	// Verify that only 1 dial happened (connection was reused)
+	if dials := atomic.LoadInt32(&dialsCount); dials != 1 {
+		t.Fatalf("expected 1 dial (connection reused), got %d", dials)
+	}
+
+	ln.Close()
+}
+
+// TestConnectionNotReusedWhenChunkedBodyNotFullyRead verifies the fix works for
+// chunked transfer encoding as well.
+func TestConnectionNotReusedWhenChunkedBodyNotFullyRead(t *testing.T) {
+	t.Parallel()
+
+	ln := fasthttputil.NewInmemoryListener()
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.SetStatusCode(StatusOK)
+			// Use streaming response to force chunked encoding
+			ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+				for i := 0; i < 100; i++ {
+					fmt.Fprintf(w, "chunk-%d-", i)
+					w.Flush()
+				}
+			})
+		},
+	}
+	go s.Serve(ln) //nolint:errcheck
+
+	var dialsCount int32
+	c := &HostClient{
+		Addr:               "foobar",
+		StreamResponseBody: true,
+		Dial: func(addr string) (net.Conn, error) {
+			atomic.AddInt32(&dialsCount, 1)
+			return ln.Dial()
+		},
+	}
+
+	// First request: read only partial chunked body
+	req := AcquireRequest()
+	resp := AcquireResponse()
+	req.SetRequestURI("http://foobar/test1")
+	if err := c.Do(req, resp); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stream := resp.BodyStream()
+	buf := make([]byte, 50)
+	_, err := stream.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Fatalf("unexpected error reading partial chunked body: %v", err)
+	}
+
+	// Close without reading rest
+	if err := resp.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing body stream: %v", err)
+	}
+	ReleaseRequest(req)
+	ReleaseResponse(resp)
+
+	// Second request
+	req2 := AcquireRequest()
+	resp2 := AcquireResponse()
+	req2.SetRequestURI("http://foobar/test2")
+	if err := c.Do(req2, resp2); err != nil {
+		t.Fatalf("unexpected error on second request: %v", err)
+	}
+
+	stream2 := resp2.BodyStream()
+	_, err = io.ReadAll(stream2)
+	if err != nil {
+		t.Fatalf("error reading second chunked body: %v", err)
+	}
+
+	if err := resp2.CloseBodyStream(); err != nil {
+		t.Fatalf("error closing second body stream: %v", err)
+	}
+	ReleaseRequest(req2)
+	ReleaseResponse(resp2)
+
+	// Verify that 2 dials happened (connection not reused)
+	if dials := atomic.LoadInt32(&dialsCount); dials != 2 {
+		t.Fatalf("expected 2 dials (connection not reused for chunked), got %d", dials)
+	}
+
+	ln.Close()
+}

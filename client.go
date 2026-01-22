@@ -2,6 +2,7 @@ package fns
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -2932,11 +2933,24 @@ func (t *transport) RoundTrip(hc *HostClient, req *Request, resp *Response) (ret
 	if customStreamBody && resp.bodyStream != nil {
 		rbs := resp.bodyStream
 		resp.bodyStream = newCloseReader(rbs, func() error {
-			hc.releaseReader(br)
+			// Check if the body was fully consumed before returning connection to pool
+			fullyRead := false
 			if r, ok := rbs.(*requestStream); ok {
+				fullyRead = r.reachedEOF
 				releaseRequestStream(r)
+			} else if _, ok := rbs.(*bytes.Reader); ok {
+				// bytes.Reader is used when body was small enough to be fully buffered
+				// In this case, body is already fully read from the network
+				fullyRead = true
 			}
-			if closeConn || resp.ConnectionClose() {
+
+			// Check for extra data in buffer (e.g., incorrect Content-Length from origin)
+			hasExtraData := br.Buffered() > 0
+
+			hc.releaseReader(br)
+
+			// Only reuse connection if it's completely clean
+			if closeConn || resp.ConnectionClose() || !fullyRead || hasExtraData {
 				hc.closeConn(cc)
 			} else {
 				hc.releaseConn(cc)

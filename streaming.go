@@ -20,6 +20,7 @@ type requestStream struct {
 	reader          *bufio.Reader
 	totalBytesRead  int
 	chunkLeft       int
+	reachedEOF      bool
 }
 
 func (rs *requestStream) Read(p []byte) (int, error) {
@@ -38,6 +39,7 @@ func (rs *requestStream) Read(p []byte) (int, error) {
 				if err != nil && err != io.EOF {
 					return 0, err
 				}
+				rs.reachedEOF = true
 				return 0, io.EOF
 			}
 			rs.chunkLeft = chunkSize
@@ -58,6 +60,7 @@ func (rs *requestStream) Read(p []byte) (int, error) {
 		return n, err
 	}
 	if rs.totalBytesRead == rs.header.ContentLength() {
+		rs.reachedEOF = true
 		return 0, io.EOF
 	}
 	prefetchedSize := int(rs.prefetchedBytes.Size())
@@ -69,6 +72,7 @@ func (rs *requestStream) Read(p []byte) (int, error) {
 		n, err := rs.prefetchedBytes.Read(p)
 		rs.totalBytesRead += n
 		if n == rs.header.ContentLength() {
+			rs.reachedEOF = true
 			return n, io.EOF
 		}
 		return n, err
@@ -84,6 +88,7 @@ func (rs *requestStream) Read(p []byte) (int, error) {
 	}
 
 	if rs.totalBytesRead == rs.header.ContentLength() {
+		rs.reachedEOF = true
 		err = io.EOF
 	}
 	return n, err
@@ -101,6 +106,7 @@ func releaseRequestStream(rs *requestStream) {
 	rs.prefetchedBytes = nil
 	rs.totalBytesRead = 0
 	rs.chunkLeft = 0
+	rs.reachedEOF = false
 	rs.reader = nil
 	rs.header = nil
 	requestStreamPool.Put(rs)
