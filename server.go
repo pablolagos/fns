@@ -2456,7 +2456,28 @@ func (s *Server) serveConn(c net.Conn) (err error) {
 
 		if ctx.disableBuffering {
 			_ = ctx.CloseResponse()
-			break
+
+			// Reset unbuffered state so the next request on this connection
+			// can use the normal buffered path.
+			ctx.disableBuffering = false
+			ctx.unbufferedWriter = nil
+			ctx.getUnbufferedWriter = nil
+			ctx.bytesSent = 0
+
+			// Check if the connection should be closed after this unbuffered response.
+			// The response was already written directly to the connection, so we skip
+			// writeResponse but still honor keep-alive conditions.
+			connectionClose = connectionClose ||
+				(s.MaxRequestsPerConn > 0 && connRequestNum >= uint64(s.MaxRequestsPerConn)) ||
+				ctx.Response.Header.ConnectionClose() ||
+				(s.CloseOnShutdown && atomic.LoadInt32(&s.stop) == 1)
+			if connectionClose {
+				break
+			}
+
+			// Response already sent via unbuffered writer — skip writeResponse and
+			// hijack handling, proceed directly to reset for the next keep-alive request.
+			goto afterResponse
 		}
 
 		timeoutResponse = ctx.timeoutResponse
@@ -2556,6 +2577,7 @@ func (s *Server) serveConn(c net.Conn) (err error) {
 			break
 		}
 
+	afterResponse:
 		if ctx.Request.bodyStream != nil {
 			if rs, ok := ctx.Request.bodyStream.(*requestStream); ok {
 				releaseRequestStream(rs)
