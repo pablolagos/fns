@@ -621,3 +621,31 @@ func TestIssue932(t *testing.T) {
 		t.Error("nil expected for t4")
 	}
 }
+
+func TestArgsKVIndexed(t *testing.T) {
+	var a Args
+	a.Parse("a=1&b=2&c=3")
+	if a.Len() != 3 {
+		t.Fatalf("Len = %d, want 3", a.Len())
+	}
+	// KV must match VisitAll ordering and values exactly.
+	var vk, vv [][]byte
+	a.VisitAll(func(k, v []byte) {
+		vk = append(vk, append([]byte(nil), k...))
+		vv = append(vv, append([]byte(nil), v...))
+	})
+	for i := 0; i < a.Len(); i++ {
+		k, v := a.KV(i)
+		if string(k) != string(vk[i]) || string(v) != string(vv[i]) {
+			t.Errorf("KV(%d) = (%q,%q), want (%q,%q)", i, k, v, vk[i], vv[i])
+		}
+	}
+	// Indexed iteration must be allocation-free.
+	if n := testing.AllocsPerRun(100, func() {
+		for i := 0; i < a.Len(); i++ {
+			_, _ = a.KV(i)
+		}
+	}); n != 0 {
+		t.Errorf("KV iteration must be 0-alloc, got %v", n)
+	}
+}

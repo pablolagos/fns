@@ -79,6 +79,18 @@ func (a *Args) Len() int {
 	return len(a.args)
 }
 
+// KV returns the key and value of the i-th arg, where i is in [0, Len()).
+//
+// It exists so callers can iterate args with a plain indexed loop instead of
+// VisitAll: passing a closure to VisitAll forces that closure (and any variable
+// it captures) onto the heap, whereas Len()+KV lets a hot-path caller iterate
+// allocation-free. The returned slices alias the Args storage — do not retain
+// them after the Args is reset or reused; copy if you need to keep them.
+func (a *Args) KV(i int) (key, value []byte) {
+	kv := &a.args[i]
+	return kv.key, kv.value
+}
+
 // Parse parses the given string containing query args.
 func (a *Args) Parse(s string) {
 	a.buf = append(a.buf[:0], s...)
