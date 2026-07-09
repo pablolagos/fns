@@ -92,6 +92,20 @@ type RequestHeader struct {
 	// stores an immutable copy of headers as they were received from the
 	// wire.
 	rawHeaders []byte
+
+	// Indexed header view (see KVLen / KVAt). Lets a hot-path caller iterate every
+	// header — including the synthetic special headers that VisitAll assembles on
+	// the fly (Host, Content-Length, Content-Type, User-Agent, Trailer, Cookie,
+	// Connection) — with a plain indexed loop, avoiding the heap-escaping closure
+	// that VisitAll forces. Built lazily once in buildKVIndex and invalidated in
+	// resetSkipNormalize, so repeated indexed iterations over the same request
+	// reuse the layout instead of reassembling the specials each time.
+	kvIndexReady bool
+	kvConnClose  bool      // trailing "Connection: close" special (emitted last, as in VisitAll)
+	kvSpecialN   int       // number of populated entries in kvSpecial
+	kvSpecial    [6]argsKV // pre-args specials in VisitAll order: Host, CL, CT, UA, Trailer, Cookie
+	kvCookieBuf  []byte    // reused backing store for the assembled Cookie special value
+	kvTrailerBuf []byte    // reused backing store for the assembled Trailer special value
 }
 
 // SetContentRange sets 'Content-Range: bytes startPos-endPos/contentLength'
@@ -1052,6 +1066,10 @@ func (h *RequestHeader) resetSkipNormalize() {
 	h.cookiesCollected = false
 
 	h.rawHeaders = h.rawHeaders[:0]
+
+	// Invalidate the indexed header view; keep kvCookieBuf/kvTrailerBuf capacity
+	// so a pooled RequestHeader reassembles without allocating.
+	h.kvIndexReady = false
 }
 
 // CopyTo copies all the headers to dst.
@@ -1203,6 +1221,100 @@ func (h *RequestHeader) VisitAll(f func(key, value []byte)) {
 	if h.ConnectionClose() {
 		f(strConnection, strClose)
 	}
+}
+
+// buildKVIndex materializes the indexed header view consumed by KVLen / KVAt.
+//
+// It mirrors VisitAll exactly: the pre-args special headers (Host,
+// Content-Length, Content-Type, User-Agent, Trailer, Cookie) are captured, in
+// that order, into kvSpecial; the regular headers in h.h are addressed
+// directly by KVAt; and a trailing "Connection: close" special is flagged. The
+// two specials that VisitAll assembles into a scratch buffer (Trailer, Cookie)
+// are assembled here into dedicated reused buffers so the view stays valid
+// across many KV calls without clobbering h.bufKV.
+//
+// It runs at most once per request: the kvIndexReady flag short-circuits
+// repeated calls, and resetSkipNormalize clears it (keeping the buffers'
+// capacity) so a pooled RequestHeader rebuilds the view for the next request.
+func (h *RequestHeader) buildKVIndex() {
+	if h.kvIndexReady {
+		return
+	}
+	n := 0
+	if host := h.Host(); len(host) > 0 {
+		h.kvSpecial[n] = argsKV{key: strHost, value: host}
+		n++
+	}
+	if len(h.contentLengthBytes) > 0 {
+		h.kvSpecial[n] = argsKV{key: strContentLength, value: h.contentLengthBytes}
+		n++
+	}
+	if contentType := h.ContentType(); len(contentType) > 0 {
+		h.kvSpecial[n] = argsKV{key: strContentType, value: contentType}
+		n++
+	}
+	if userAgent := h.UserAgent(); len(userAgent) > 0 {
+		h.kvSpecial[n] = argsKV{key: strUserAgent, value: userAgent}
+		n++
+	}
+	if len(h.trailer) > 0 {
+		h.kvTrailerBuf = appendArgsKeyBytes(h.kvTrailerBuf[:0], h.trailer, strCommaSpace)
+		h.kvSpecial[n] = argsKV{key: strTrailer, value: h.kvTrailerBuf}
+		n++
+	}
+	h.collectCookies()
+	if len(h.cookies) > 0 {
+		h.kvCookieBuf = appendRequestCookieBytes(h.kvCookieBuf[:0], h.cookies)
+		h.kvSpecial[n] = argsKV{key: strCookie, value: h.kvCookieBuf}
+		n++
+	}
+	h.kvSpecialN = n
+	h.kvConnClose = h.ConnectionClose()
+	h.kvIndexReady = true
+}
+
+// KVLen returns the number of headers exposed by KVAt. It matches the number of
+// entries VisitAll would visit: the present special headers plus every regular
+// header. Building the view is lazy and cached for the request (see
+// buildKVIndex), so KVLen is cheap to call repeatedly.
+//
+// Note it is deliberately named KVLen, not Len: RequestHeader.Len already means
+// "number of headers" with a VisitAll-counting implementation, and reusing that
+// name here (paired with an indexed accessor) would make RequestHeader match
+// generic Len()+KV(i) iterator interfaces by accident.
+func (h *RequestHeader) KVLen() int {
+	h.buildKVIndex()
+	n := h.kvSpecialN + len(h.h)
+	if h.kvConnClose {
+		n++
+	}
+	return n
+}
+
+// KVAt returns the key and value of the i-th header, where i is in [0, KVLen()).
+// It is the indexed, allocation-free counterpart of VisitAll: passing a closure
+// to VisitAll forces that closure (and anything it captures) onto the heap,
+// whereas KVLen + KVAt let a hot-path caller iterate without that cost.
+//
+// Callers must invoke KVLen (which builds the view) before KVAt. The returned
+// slices alias header storage — including reused special-header buffers — so do
+// not retain them past the next reset/reuse; copy if you need to keep them.
+//
+// It is named KVAt rather than KV so that RequestHeader — which already has a
+// Len method — does not accidentally satisfy a generic Len()+KV(i) indexed
+// iterator interface with Len's incompatible (header-count) semantics.
+func (h *RequestHeader) KVAt(i int) (key, value []byte) {
+	if i < h.kvSpecialN {
+		kv := &h.kvSpecial[i]
+		return kv.key, kv.value
+	}
+	i -= h.kvSpecialN
+	if i < len(h.h) {
+		kv := &h.h[i]
+		return kv.key, kv.value
+	}
+	// Trailing "Connection: close" special, emitted last as in VisitAll.
+	return strConnection, strClose
 }
 
 // VisitAllInOrder calls f for each header in the order they were received.

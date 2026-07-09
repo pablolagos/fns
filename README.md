@@ -57,6 +57,33 @@ func main() {
 }
 ```
 
+## ⚡ Allocation-free header iteration
+
+`RequestHeader.VisitAll` takes a closure, which the compiler must move to the
+heap because `VisitAll` is not inlined — costing allocations on hot paths that
+scan every header. For those paths, `RequestHeader` exposes an indexed view that
+iterates without a closure:
+
+```go
+for i, n := 0, h.KVLen(); i < n; i++ {
+    key, value := h.KVAt(i)
+    // ...
+}
+```
+
+`KVLen`/`KVAt` return the exact same entries as `VisitAll`, in the same order —
+including the synthetic special headers (`Host`, `Content-Length`,
+`Content-Type`, `User-Agent`, `Trailer`, the combined `Cookie`, and a trailing
+`Connection: close`). The view is built lazily once per request and reused, and
+is invalidated on `Reset`, so repeated scans are allocation-free after the first.
+The returned slices alias header storage (including reused special-header
+buffers); copy them if you need to retain them past the next reset.
+
+It is named `KVAt` (not `KV`) on purpose: `RequestHeader` already has a `Len`
+method, so a `KV` accessor would make it accidentally satisfy generic
+`Len()`+`KV(i)` iterator interfaces with `Len`'s incompatible header-count
+semantics.
+
 ## 📖 Documentation
 Detailed documentation is available on our wiki. Here are some quick links to get you started:
 
