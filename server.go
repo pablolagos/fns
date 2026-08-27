@@ -678,6 +678,31 @@ func (ctx *RequestCtx) CloseResponse() error {
 	return ctx.unbufferedWriter.Close()
 }
 
+// Flush pushes an unbuffered response's bytes to the client without ending it.
+//
+// Only meaningful after DisableBuffering: a buffered response IS a buffer,
+// delivered when the handler returns, and there is nothing to push early. That
+// case answers ErrNotUnbuffered rather than doing nothing, because a handler
+// streaming into a buffered response has a bug and silence would hide it.
+//
+// A writer that cannot flush answers nil, not an error. That is the
+// http.Flusher contract and it is the right one here: a protocol layer whose
+// every write is already a frame on the wire has nothing to do, and a caller
+// that flushes after each chunk must not have to know which transport it is on.
+func (ctx *RequestCtx) Flush() error {
+	if !ctx.disableBuffering {
+		return ErrNotUnbuffered
+	}
+	if ctx.unbufferedWriter == nil {
+		return ErrClosedUnbufferedWriter
+	}
+	flusher, ok := ctx.unbufferedWriter.(Flusher)
+	if !ok {
+		return nil
+	}
+	return flusher.Flush()
+}
+
 // HijackHandler must process the hijacked connection c.
 //
 // If KeepHijackedConns is disabled, which is by default,

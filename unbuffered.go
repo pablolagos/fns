@@ -12,6 +12,19 @@ type UnbufferedWriter interface {
 	Close() error
 }
 
+// Flusher is implemented by an UnbufferedWriter that can push what it has
+// already been given out to the client WITHOUT ending the response.
+//
+// It is an optional interface rather than a fourth method on UnbufferedWriter,
+// for the reason http.Flusher is one: a transport that frames every write on
+// its own has nothing to flush, and a protocol layer that supplies its own
+// writer through SetUnbufferedWriter must not have to grow a method to keep
+// compiling. RequestCtx.Flush asks for this and does nothing when the answer is
+// no.
+type Flusher interface {
+	Flush() error
+}
+
 type unbufferedWriter struct {
 	writer            *bufio.Writer
 	ctx               *RequestCtx
@@ -136,6 +149,48 @@ func (uw *unbufferedWriter) WriteHeaders() (int, error) {
 		uw.headersWritten = true
 	}
 	return 0, nil
+}
+
+// Flush sends everything written so far and leaves the response open.
+//
+// It exists for the responses that are read as they arrive rather than when
+// they end — server-sent events, a tailed log, a long poll — and it does TWO
+// things, of which the second is the one worth having:
+//
+//   - it empties the bufio.Writer. This matters only for a response of KNOWN
+//     length written in pieces: the chunked path already flushes on every write
+//     (writeChunk), which is why an HTTP/1.1 stream has always worked without
+//     anybody asking for it.
+//   - it flushes the connection UNDERNEATH, when that connection can be
+//     flushed. On HTTP/2 and HTTP/3 ctx.c is not a socket: it is a wrapper over
+//     a response writer that holds bytes of its own, and emptying our buffer
+//     into it moves the stall one layer down rather than ending it. Nothing is
+//     assumed of a plain net.Conn, which is why this is an interface check and
+//     not a call.
+//
+// Headers go out first if they have not already. A Flush before any body has
+// been written is a legitimate thing to ask for — it is how a handler tells a
+// client that the stream has opened — and it settles the framing exactly as the
+// first Write would have.
+func (uw *unbufferedWriter) Flush() error {
+	if uw.writer == nil || uw.ctx == nil {
+		return ErrClosedUnbufferedWriter
+	}
+
+	if !uw.headersWritten {
+		if _, err := uw.WriteHeaders(); err != nil {
+			return fmt.Errorf("error writing headers: %w", err)
+		}
+	}
+
+	if err := uw.writer.Flush(); err != nil {
+		return err
+	}
+
+	if flusher, ok := uw.ctx.c.(Flusher); ok {
+		return flusher.Flush()
+	}
+	return nil
 }
 
 func (uw *unbufferedWriter) Close() error {
