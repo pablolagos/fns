@@ -2827,6 +2827,10 @@ func (ctx *RequestCtx) Init2(conn net.Conn, logger Logger, reduceMemoryUsage boo
 	ctx.s = fakeServer
 	ctx.connRequestNum = 0
 	ctx.connTime = time.Now()
+	// Custom servers (e.g. HTTP/2 adapters) create one ctx per request through
+	// Init2 and never reach serveConn, which is where ctx.time is normally set.
+	// Without this, Time() returns the zero time for every such request.
+	ctx.time = ctx.connTime
 
 	keepBodyBuffer := !reduceMemoryUsage
 	ctx.Request.keepBodyBuffer = keepBodyBuffer
